@@ -135,6 +135,17 @@ export function Preview({ target, onClose, onLogged }: {
     finally { setBusy(false) }
   }
 
+  /*
+   * Buying, renting and streaming all count as somewhere to watch it; a film
+   * only out in cinemas has none of them, which is worth saying plainly
+   * rather than leaving a gap where the section would be.
+   */
+  const streamable = Boolean(
+    data?.watch && (data.watch.stream?.length || data.watch.free?.length
+      || data.watch.rent?.length || data.watch.buy?.length),
+  )
+  const unreleased = Boolean(p?.release_date && new Date(p.release_date) > new Date())
+
   const facts = [
     p?.year ? String(p.year) : null,
     p?.runtime ? fmtRuntime(p.runtime) : null,
@@ -264,11 +275,24 @@ export function Preview({ target, onClose, onLogged }: {
               </div>
             ) : null}
 
-            {/* Where you could actually watch it tonight. */}
-            {data?.watch && (data.watch.stream?.length || data.watch.free?.length || data.watch.rent?.length) ? (
+            {/*
+              * Where you could actually watch it tonight — and when there is
+              * nowhere, that too. Hiding the section left people looking for
+              * something that was never going to appear, with no way to tell
+              * a film nobody streams from one the app had failed to ask about.
+              */}
+            {screen && data?.watch ? (
               <div className="u-col" style={{ gap: 8 }}>
                 <span className="u-caps">Where to watch · {data.region}</span>
-                {([['Streaming', data.watch.stream], ['Free', data.watch.free], ['Rent', data.watch.rent]] as const)
+                {!streamable && (
+                  <span className="u-sm u-mut">
+                    {unreleased
+                      ? `Not out yet${p?.release_date ? ` — due ${fmtDate(p.release_date)}` : ''}.`
+                      : `Nothing streaming, renting or buying it in ${data.region} at the moment.`}
+                  </span>
+                )}
+                {([['Streaming', data.watch.stream], ['Free', data.watch.free],
+                   ['Rent', data.watch.rent], ['Buy', data.watch.buy]] as const)
                   .filter(([, list]) => list?.length)
                   .map(([label, list]) => (
                     <div key={label} className="u-row u-wrap" style={{ gap: 8, alignItems: 'center' }}>
@@ -284,7 +308,7 @@ export function Preview({ target, onClose, onLogged }: {
                   ))}
                 {data.watch.link && (
                   <a className="u-xs linkish" href={data.watch.link} target="_blank" rel="noreferrer">
-                    Open on JustWatch <Icon name="external" size={11} />
+                    {streamable ? 'Open on JustWatch' : 'Check JustWatch'} <Icon name="external" size={11} />
                   </a>
                 )}
               </div>
