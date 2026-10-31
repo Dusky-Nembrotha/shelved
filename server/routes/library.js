@@ -6,6 +6,8 @@ import { searchProviders, searchAllTypes, bookNoise, enrich, screenRatings, tmdb
 import { foldGenres, genreFacets, matchesGenre } from '../lib/genres.js'
 import * as bgg from '../providers/bgg.js'
 import { cacheArtwork, cachedPathFor } from '../lib/artwork.js'
+import { join } from 'node:path'
+import { DATA_DIR } from '../lib/db.js'
 import { qualityOf } from '../lib/imagesize.js'
 import { queueEnrichment, prioritise } from '../enrich.js'
 import { setting } from '../lib/settings.js'
@@ -457,6 +459,51 @@ router.get('/artwork/candidates', async (req, res) => {
     mbid: req.query.mbid || null,
   })
   res.json({ current: null, currentMeta: null, candidates: measured })
+})
+
+/*
+ * Fetch a remote cover once, here, and serve it from disk.
+ *
+ * Suggestions and the chart show eighteen covers at a time and the browser
+ * asks for all of them at once. Open Library answers a burst like that with
+ * throttling, which is why a page of audiobook suggestions arrived with no
+ * pictures at all — not missing covers, refused ones. Asking from here means
+ * one polite request per image, kept afterwards.
+ *
+ * The allowlist is the whole of the security here: a proxy that fetches any
+ * URL on request is an open relay into whatever this machine can reach, and
+ * this one answers from the public internet.
+ */
+const ARTWORK_HOSTS = new Set([
+  'covers.openlibrary.org',
+  'books.google.com', 'books.googleusercontent.com',
+  'image.tmdb.org',
+  'upload.wikimedia.org', 'commons.wikimedia.org', 'en.wikipedia.org',
+  'cf.geekdo-images.com',
+  'coverartarchive.org', 'ia801504.us.archive.org',
+  'cdn.cloudflare.steamstatic.com', 'shared.akamai.steamstatic.com',
+  'm.media-amazon.com',
+])
+
+router.get('/artwork/fetch', async (req, res) => {
+  const raw = String(req.query.url || '')
+  let url
+  try { url = new URL(raw) } catch { return res.status(400).json({ error: 'Not a URL' }) }
+  if (url.protocol !== 'https:') return res.status(400).json({ error: 'https only' })
+
+  const host = url.hostname.toLowerCase()
+  const allowed = ARTWORK_HOSTS.has(host)
+    // Apple serve artwork from a numbered fleet of mzstatic hosts.
+    || /^is\d-ssl\.mzstatic\.com$/.test(host)
+  if (!allowed) return res.status(403).json({ error: 'Not an artwork host' })
+
+  const got = await cacheArtwork(raw).catch(() => null)
+  if (!got?.path) return res.status(404).json({ error: 'No image there' })
+
+  // Served straight off disk from here on, and cached hard: the file is named
+  // after the URL it came from, so its contents never change.
+  res.set('Cache-Control', 'public, max-age=2592000, immutable')
+  res.sendFile(join(DATA_DIR, got.path.replace('/artwork/', 'artwork/')))
 })
 
 /** Everything whose cover is too small to look right. */

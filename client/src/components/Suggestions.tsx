@@ -21,6 +21,8 @@ interface RecResponse {
   cached?: boolean
   profileThin?: boolean
   usingTmdb?: boolean
+  /** Which catalogue actually answered, rather than which key is set. */
+  source?: string
   usingCrowd?: boolean
   crowdSize?: number
   /** Which way the engine was looking this time round. */
@@ -203,7 +205,7 @@ export function Suggestions({ type, genre = null, onGenre }: {
             : `${picks.length}${data?.angleLabel ? ` ${data.angleLabel}` : ''}`
               + ` · from ${data?.candidateCount ?? 0} candidates`
               + `${data?.usingCrowd ? ` · placed by ${(data.crowdSize ?? 0).toLocaleString('en-GB')} of your ratings` : ''}`
-              + `${data?.usingTmdb ? ' · TMDB' : ' · keyless sources'}`
+              + `${data?.source ? ` · ${data.source}` : ''}`
               + `${data?.cached ? ' · cached' : ''}`}
         </span>
         <div className="u-row u-wrap" style={{ gap: 8 }}>

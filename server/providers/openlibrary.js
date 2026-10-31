@@ -33,8 +33,17 @@ function englishEdition(doc) {
 const firstOf = (v) => (Array.isArray(v) ? v[0] : v) || null
 
 /** A cover by Open Library cover id, or by ISBN when that is all there is. */
+/*
+ * A cover, or nothing — never a blank.
+ *
+ * Open Library answers 200 with a one-pixel transparent GIF when it has no
+ * cover for an ISBN, which is indistinguishable from a real answer to every
+ * check in this app: the URL exists, the request succeeds, the card renders
+ * empty. default=false makes a missing cover a 404, which is the truth and
+ * which the fallbacks can act on.
+ */
 export function coverUrl(id, size = 'L', key = 'id') {
-  return id ? `https://covers.openlibrary.org/b/${key}/${id}-${size}.jpg` : null
+  return id ? `https://covers.openlibrary.org/b/${key}/${id}-${size}.jpg?default=false` : null
 }
 
 // Open Library subjects are a jumble: "genre:fantasy", "nyt:bestseller",

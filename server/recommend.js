@@ -297,16 +297,33 @@ function recencyWeight(dateStr) {
 export function buildProfile() {
   const rows = all(`
     SELECT w.id, w.type, w.title, w.year, w.genres, w.creators, w.language, w.metadata, w.tmdb_id,
-           e.rating, e.liked, e.consumed_on, e.id AS entry_id
+           e.rating, e.liked, e.consumed_on, e.format, e.id AS entry_id
     FROM entries e JOIN works w ON w.id = e.work_id
     ORDER BY ifnull(e.consumed_on, e.created_at) DESC`)
 
-  const works = rows.map((r) => ({
-    ...r,
-    genres: json(r.genres, []),
-    creators: json(r.creators, []),
-    metadata: json(r.metadata, {}),
-  }))
+  /*
+   * A book sits on the shelf you took it in from.
+   *
+   * Audiobooks are stored as books with the format on the entry, so a profile
+   * keyed on the type column had no audiobooks in it at all — no favourites,
+   * no authors, no narrators, nothing for the engine to reason from. The
+   * audiobook shelf has a hundred and eighty titles and was being asked to
+   * suggest from none of them.
+   *
+   * A book both read and listened to belongs to both, and counts on both.
+   */
+  const works = rows.flatMap((r) => {
+    const base = {
+      ...r,
+      genres: json(r.genres, []),
+      creators: json(r.creators, []),
+      metadata: json(r.metadata, {}),
+    }
+    if (r.type !== 'book') return [base]
+    if (r.format === 'audiobook') return [{ ...base, type: 'audiobook' }]
+    if (r.format === 'both') return [base, { ...base, type: 'audiobook' }]
+    return [base]
+  })
 
   const ratedByType = {}
   for (const w of works) {
@@ -1410,11 +1427,22 @@ async function hydrateDetails(type, shortlist) {
 async function hydrateBooks(picks) {
   for (const p of picks) {
     if (p.provider !== 'goodbooks' || !p.isbn) continue
-    const found = await ol.byIsbn(p.isbn, p.type).catch(() => null)
-      || (gbooks.hasKey() ? await gbooks.byIsbn(p.isbn, p.type).catch(() => null) : null)
+    /*
+     * Both, not one or the other. Open Library answers for almost every ISBN
+     * but has a cover for only some of them, and until default=false it said
+     * so with a blank image that looked like success — which is why every
+     * crowd-picked audiobook had an invisible card. Google's cover is
+     * preferred when there is one; Open Library remains the better source
+     * for everything else about the book.
+     */
+    const [olFound, gbFound] = await Promise.all([
+      ol.byIsbn(p.isbn, p.type).catch(() => null),
+      gbooks.hasKey() ? gbooks.byIsbn(p.isbn, p.type).catch(() => null) : null,
+    ])
+    const found = olFound || gbFound
     if (!found) continue
     p.olid = found.olid || p.olid
-    p.poster_url = found.poster_url || p.poster_url
+    p.poster_url = gbFound?.poster_url || olFound?.poster_url || p.poster_url
     p.overview = p.overview || found.overview
     p.pages = p.pages ?? found.pages
     if (found.genres?.length) p.genres = found.genres
@@ -1578,7 +1606,14 @@ export async function recommend(type, { limit = 12, force = false, breadth = 1 }
     angle: angle.key,
     angleLabel: angle.label,
     angleBlurb: angle.blurb,
-    usingTmdb: tmdb.hasKey(),
+    // Which catalogue actually answered, rather than which key happens to be
+    // configured — books have never come from TMDB and saying so was a lie.
+    usingTmdb: (type === 'film' || type === 'tv') && tmdb.hasKey(),
+    source: type === 'film' || type === 'tv' ? (tmdb.hasKey() ? 'TMDB' : 'Wikidata')
+      : type === 'book' || type === 'audiobook' ? (crowd ? 'Goodreads ratings and Open Library' : 'Open Library')
+        : type === 'boardgame' ? 'BoardGameGeek'
+          : type === 'game' ? 'Steam and Wikidata'
+            : 'Apple',
     usingCrowd: Boolean(crowd),
     // How many of your own ratings the crowd model could place you by.
     crowdSize: crowd ? crowd.user.n : 0,
