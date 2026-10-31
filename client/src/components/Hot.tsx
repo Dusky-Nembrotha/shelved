@@ -167,17 +167,17 @@ export function Hot({ type, genre = null, onGenre }: {
     <>
       {preview && <Preview target={preview} onClose={() => setPreview(null)} />}
 
-      <div className="u-spread u-wrap" style={{ gap: 10, margin: '4px 0 14px' }}>
-        <span className="u-sm u-mut">
-          What is being watched, read and talked about most right now · {source}
-        </span>
-        <div className="u-row u-wrap" style={{ gap: 8 }}>
-          <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
-          <div className="chiprow">
-            {([['hot', 'Hottest'], ['rating', 'Best rated'], ['released', 'Newest']] as const).map(([v, label]) => (
-              <button key={v} className={`chip${sort === v ? ' is-on' : ''}`} onClick={() => setSort(v)}>{label}</button>
-            ))}
-          </div>
+      {/* Controls only; what the chart is and where it came from is on the
+          sort chips, which is the part that acts on it. */}
+      <div className="controlbar">
+        <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
+        <div
+          className="chiprow"
+          title={`What is being watched, read and talked about most right now · ${source ?? ''}`}
+        >
+          {([['hot', 'Hottest'], ['rating', 'Best rated'], ['released', 'Newest']] as const).map(([v, label]) => (
+            <button key={v} className={`chip${sort === v ? ' is-on' : ''}`} onClick={() => setSort(v)}>{label}</button>
+          ))}
         </div>
       </div>
 

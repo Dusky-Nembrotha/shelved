@@ -198,32 +198,37 @@ export function Suggestions({ type, genre = null, onGenre }: {
         />
       )}
 
-      <div className="u-spread" style={{ margin: '4px 0 14px' }}>
-        <span className="u-sm u-mut" title={data?.angleBlurb || undefined}>
-          {loading
-            ? 'Working out what you would like…'
-            : `${picks.length}${data?.angleLabel ? ` ${data.angleLabel}` : ''}`
-              + ` · from ${data?.candidateCount ?? 0} candidates`
-              + `${data?.usingCrowd ? ` · placed by ${(data.crowdSize ?? 0).toLocaleString('en-GB')} of your ratings` : ''}`
-              + `${data?.source ? ` · ${data.source}` : ''}`
-              + `${data?.cached ? ' · cached' : ''}`}
-        </span>
-        <div className="u-row u-wrap" style={{ gap: 8 }}>
-          <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
-          <div className="chiprow">
-            {([['match', 'Best match'], ['rating', 'Best rated'], ['released', 'Newest']] as const).map(([v, label]) => (
-              <button key={v} className={`chip${sort === v ? ' is-on' : ''}`} onClick={() => setSort(v)}>{label}</button>
-            ))}
-          </div>
-          <button
-            className="btn btn--sm"
-            onClick={() => load(true, PAGE)}
-            disabled={loading}
-            title="Look again from a different angle"
-          >
-            <Icon name="refresh" size={14} /> {loading ? 'Thinking…' : 'Refresh'}
-          </button>
+      {/*
+        * One row of controls and nothing else.
+        *
+        * The counts and the angle used to sit beside them as a sentence,
+        * which on a phone wrapped to four lines and pushed the first game
+        * most of a screen down — a paragraph of bookkeeping in front of the
+        * thing it is describing. It is still worth knowing, so it is on the
+        * Refresh button, which is what changes it.
+        */}
+      <div className="controlbar">
+        <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
+        <div className="chiprow">
+          {([['match', 'Best match'], ['rating', 'Best rated'], ['released', 'Newest']] as const).map(([v, label]) => (
+            <button key={v} className={`chip${sort === v ? ' is-on' : ''}`} onClick={() => setSort(v)}>{label}</button>
+          ))}
         </div>
+        <button
+          className="btn btn--sm controlbar__end"
+          onClick={() => load(true, PAGE)}
+          disabled={loading}
+          title={loading ? 'Working out what you would like…' : [
+            `${picks.length}${data?.angleLabel ? ` ${data.angleLabel}` : ''}`,
+            `from ${data?.candidateCount ?? 0} candidates`,
+            data?.usingCrowd ? `placed by ${(data.crowdSize ?? 0).toLocaleString('en-GB')} of your ratings` : null,
+            data?.source || null,
+            data?.cached ? 'cached' : null,
+            'Refresh looks again from a different angle.',
+          ].filter(Boolean).join(' · ')}
+        >
+          <Icon name="refresh" size={14} /> {loading ? 'Thinking…' : 'Refresh'}
+        </button>
       </div>
 
       {needsTmdb && (

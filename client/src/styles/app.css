@@ -670,7 +670,11 @@ kbd {
 @media (max-width: 900px) {
   :root { --topbar: 58px; }
   .shell { grid-template-columns: minmax(0, 1fr); }
-  .page { padding-bottom: 86px; }
+  /* The floating bar already holds the top of the screen; 26px of padding
+     under it, a tab row and a control row is most of a phone before the
+     first card. */
+  .page { padding-top: 10px; padding-bottom: 86px; }
+  .sectiontabs { margin-bottom: 9px; }
   .grid { --card-w: 108px; }
   /*
    * Three to a row on a phone. The carousels are given a card width in pixels

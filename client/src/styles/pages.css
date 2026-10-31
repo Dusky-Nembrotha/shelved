@@ -1315,3 +1315,30 @@ a.pubrating:hover { border-color: var(--accent-line); background: rgba(10, 9, 12
 .logrow__rating { flex: 0 0 auto; font-size: 11.5px; color: var(--star); }
 .logrow__edit { flex: 0 0 auto; opacity: 0; color: var(--ink-4); }
 .logrow:hover .logrow__edit, .logrow:focus-visible .logrow__edit { opacity: 1; }
+
+/* The one row of controls above a chart or a list of suggestions.
+   On a phone it scrolls sideways rather than stacking: three rows of chips
+   before the first card is most of a screen spent on furniture. */
+.controlbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.controlbar__end { margin-left: auto; flex: 0 0 auto; }
+
+@media (max-width: 760px) {
+  .controlbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 0 8px;
+    padding-bottom: 2px;
+  }
+  .controlbar::-webkit-scrollbar { display: none; }
+  .controlbar > * { flex: 0 0 auto; }
+  .controlbar .chiprow { flex-wrap: nowrap; }
+  .controlbar__end { margin-left: 0; }
+  /* The select sets the row's height, so it should not tower over the chips. */
+  .controlbar .select--sm { height: 30px; max-width: 150px; }
+}
