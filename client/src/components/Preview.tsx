@@ -69,6 +69,7 @@ export function Preview({ target, onClose, onLogged }: {
     region: string
     ratings: { source: string; display: string | null; url: string | null }[]
     similar: { type: MediaType; title: string; year: number | null; poster_url: string | null; work_id: number | null }[]
+    trailer: { name: string; url: string; thumbnail: string } | null
   }>(
     `/preview${qs({ type: target.type, title: target.title, creator: target.creator ?? null, year: target.year ?? null })}`,
     [target.type, target.title, target.creator, target.year],
@@ -245,6 +246,21 @@ export function Preview({ target, onClose, onLogged }: {
               <p className="u-sm u-mut" style={{ margin: 0 }}>
                 No synopsis found for this one.
               </p>
+            )}
+
+            {/* The trailer, which is the fastest answer to "what is this?" */}
+            {data?.trailer && (
+              <a
+                className="trailer"
+                href={data.trailer.url}
+                target="_blank"
+                rel="noreferrer"
+                title={data.trailer.name}
+              >
+                <img src={data.trailer.thumbnail} alt="" loading="lazy" />
+                <span className="trailer__play"><Icon name="play" size={20} /></span>
+                <span className="trailer__label">Watch the trailer</span>
+              </a>
             )}
 
             {p?.cast?.length ? (

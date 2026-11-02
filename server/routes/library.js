@@ -1199,7 +1199,7 @@ router.get('/preview', async (req, res) => {
   const tmdbId = found?.tmdb_id ?? null
   const screen = type === 'film' || type === 'tv'
 
-  const [watch, ratings, similar] = await Promise.all([
+  const [watch, ratings, similar, trailer] = await Promise.all([
     screen && tmdbId
       ? tmdb.watchProviders(type, tmdbId, String(setting('watch_region') || 'GB').toUpperCase()).catch(() => null)
       : null,
@@ -1210,6 +1210,7 @@ router.get('/preview', async (req, res) => {
     screen && tmdbId
       ? tmdb.recommendations(type, tmdbId, 10).catch(() => [])
       : [],
+    screen && tmdbId ? tmdb.trailer(type, tmdbId).catch(() => null) : null,
   ])
 
   const owned = ownedIndex()
@@ -1220,6 +1221,7 @@ router.get('/preview', async (req, res) => {
     watch: watch || null,
     region: String(setting('watch_region') || 'GB').toUpperCase(),
     ratings: ratings?.ratings || [],
+    trailer,
     similar: (similar || []).slice(0, 8).map((x) => ({
       type,
       title: x.title,

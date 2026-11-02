@@ -383,3 +383,34 @@ export async function seasons(id) {
     return []
   }
 }
+
+/**
+ * The trailer, if there is one.
+ *
+ * TMDB returns everything anyone uploaded — clips, featurettes, opening
+ * credits, a director talking about a shootout — so this picks the one thing
+ * people mean by "trailer": an official one in English, then any trailer,
+ * then a teaser. Nothing else is worth a button.
+ */
+export async function trailer(type, id) {
+  if (!hasKey() || !id) return null
+  try {
+    const data = await fetchJson(
+      url(`/${type === 'tv' ? 'tv' : 'movie'}/${id}/videos`, {}),
+      { ttlSeconds: 60 * 60 * 24 * 7 },
+    )
+    const videos = (data?.results || []).filter((v) => v.site === 'YouTube' && v.key)
+    const pick = videos.find((v) => v.type === 'Trailer' && v.official)
+      || videos.find((v) => v.type === 'Trailer')
+      || videos.find((v) => v.type === 'Teaser' && v.official)
+      || videos.find((v) => v.type === 'Teaser')
+    if (!pick) return null
+    return {
+      name: pick.name || 'Trailer',
+      url: `https://www.youtube.com/watch?v=${pick.key}`,
+      thumbnail: `https://i.ytimg.com/vi/${pick.key}/hqdefault.jpg`,
+    }
+  } catch {
+    return null
+  }
+}

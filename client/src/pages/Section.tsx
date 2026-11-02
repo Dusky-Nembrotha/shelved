@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Preview } from '../components/Preview'
+import type { PreviewTarget } from '../components/Preview'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { PosterCard, PosterSkeleton } from '../components/Poster'
@@ -88,6 +90,8 @@ export function SectionPage({ type }: { type: MediaType }) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [view, setView] = useState<'grid' | 'list'>(() => (localStorage.getItem('mm-view') as 'grid' | 'list') || 'grid')
   const [limit, setLimit] = useState(60)
+  // Reaching the bottom is the request for more of it; see the observer below.
+  const moreSentinel = useRef<HTMLDivElement>(null)
   const [q, setQ] = useState('')
   const [showMore, setShowMore] = useState(false)
   // Selecting several at once, so a bad import can be cleared in one go.
@@ -120,6 +124,23 @@ export function SectionPage({ type }: { type: MediaType }) {
   const { version, toast, refresh } = useApp()
   const { data, loading } = useFetch<{ works: WorkCard[]; total: number }>(`/works${query}`, [query, version])
   const facets = useFetch<{ genres: { name: string; count: number }[]; decades: { name: string; count: number }[] }>(`/facets${qs({ type })}`)
+
+  /*
+   * Load the next sixty when the end of the list appears, with enough margin
+   * that they are usually there before you arrive.
+   */
+  const total = data?.total ?? 0
+  const shown = data?.works?.length ?? 0
+  useEffect(() => {
+    const node = moreSentinel.current
+    if (!node || loading || shown >= total) return
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) setLimit((l) => Math.max(l, shown) + 60) },
+      { rootMargin: '700px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [loading, shown, total, view])
 
   const active = useMemo(() => {
     const out: { key: keyof Filters; label: string }[] = []
@@ -315,13 +336,6 @@ export function SectionPage({ type }: { type: MediaType }) {
               />
             ))}
           </div>
-          {data && data.total > works.length && (
-            <div style={{ display: 'grid', placeItems: 'center', marginTop: 26 }}>
-              <button className="btn" onClick={() => setLimit((l) => l + 60)}>
-                Show more — {data.total - works.length} to go
-              </button>
-            </div>
-          )}
         </>
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -355,6 +369,21 @@ export function SectionPage({ type }: { type: MediaType }) {
               <span className="listrow__right u-xs u-mut">{fmtDate(w.last_on)}</span>
             </Link>
           ))}
+        </div>
+      )}
+
+      {/*
+        * Top up as the bottom comes into view, in either view — the list had
+        * no way to go past the first sixty at all. The button stays for the
+        * keyboard and for anyone who would rather ask, but six hundred films
+        * sixty at a time should not need ten presses.
+        */}
+      <div ref={moreSentinel} style={{ height: 1 }} />
+      {data && data.total > works.length && (
+        <div style={{ display: 'grid', placeItems: 'center', marginTop: 26 }}>
+          <button className="btn" onClick={() => setLimit((l) => l + 60)} disabled={loading}>
+            {loading ? 'Loading…' : `Show more — ${data.total - works.length} to go`}
+          </button>
         </div>
       )}
 
@@ -541,6 +570,9 @@ function PlannedList({ type }: { type: MediaType }) {
   const meta = SECTION_META[type]
   const { toast, refresh, openLog } = useApp()
   const { data, loading, reload } = useFetch<{ recs: Rec[] }>(`/recs?status=open&type=${type}`, [type])
+  // Nothing on this list was openable, so the only way to remember what a
+  // title was before ticking it off was to go and search for it.
+  const [preview, setPreview] = useState<PreviewTarget | null>(null)
 
   async function act(rec: Rec, what: 'log' | 'dismiss' | 'priority') {
     try {
@@ -581,6 +613,13 @@ function PlannedList({ type }: { type: MediaType }) {
 
   return (
     <>
+      {preview && (
+        <Preview
+          target={preview}
+          onClose={() => setPreview(null)}
+          onLogged={() => { setPreview(null); reload(); void refresh() }}
+        />
+      )}
       <div className="u-spread" style={{ marginBottom: 14 }}>
         <span className="u-sm u-mut">{recs.length} waiting</span>
         <button className="btn btn--sm" onClick={() => openLog({ kind: 'blank', type, mode: 'want' })}>
@@ -590,7 +629,19 @@ function PlannedList({ type }: { type: MediaType }) {
       <div className="grid" style={{ ['--card-w' as string]: meta.aspect === '1 / 1' ? '164px' : '150px' }}>
         {recs.map((rec) => (
           <div key={rec.id} className="plannedcard">
-            <PosterArt src={rec.poster_url} title={rec.title} type={rec.type || type} aspect={meta.aspect} />
+            <button
+              type="button"
+              className="poster__open"
+              onClick={() => setPreview({
+                type: rec.type || type,
+                title: rec.title,
+                year: rec.year,
+                creator: rec.creators?.[0]?.name ?? null,
+              })}
+              title={`What is ${rec.title}?`}
+            >
+              <PosterArt src={rec.poster_url} title={rec.title} type={rec.type || type} aspect={meta.aspect} />
+            </button>
             <div className="poster__meta">
               <div className="poster__title">{rec.title}</div>
               <div className="poster__sub u-trunc">
