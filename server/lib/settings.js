@@ -15,6 +15,9 @@ const DEFAULTS = {
   enrich_on_import: '1',
   owner_name: '',
   watch_region: 'GB',
+  /* TMDB provider ids you subscribe to, as JSON. Ids rather than names
+     because names differ by region and by ad tier. */
+  watch_services: '[]',
 }
 
 export function getSettings() {

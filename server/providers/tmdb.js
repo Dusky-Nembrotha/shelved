@@ -241,6 +241,9 @@ export async function watchProviders(type, id, region = 'GB') {
     if (!here) return { region, link: null, stream: [], rent: [], buy: [], free: [] }
 
     const shape = (list) => (list || []).map((p) => ({
+      // The id is what "my services" is matched on; names differ by region
+      // and by whether an ad tier counts as the same service.
+      id: p.provider_id,
       name: p.provider_name,
       logo: p.logo_path ? `${IMG}/w92${p.logo_path}` : null,
       priority: p.display_priority ?? 99,
@@ -413,4 +416,35 @@ export async function trailer(type, id) {
   } catch {
     return null
   }
+}
+
+/**
+ * Everything you could subscribe to where you live.
+ *
+ * Films and television have slightly different line-ups, so both are asked
+ * and merged — Sky Sports carries no films, BFI Player carries few shows.
+ * Ordered the way TMDB orders them, which is roughly by how many people use
+ * them, so the list opens with the ones most people mean.
+ */
+export async function availableProviders(region = 'GB') {
+  if (!hasKey()) return []
+  const seen = new Map()
+  for (const kind of ['movie', 'tv']) {
+    try {
+      const data = await fetchJson(
+        url(`/watch/providers/${kind}`, { watch_region: region }),
+        { ttlSeconds: 60 * 60 * 24 * 7 },
+      )
+      for (const p of data?.results || []) {
+        if (!p?.provider_id || seen.has(p.provider_id)) continue
+        seen.set(p.provider_id, {
+          id: p.provider_id,
+          name: p.provider_name,
+          logo: p.logo_path ? `${IMG}/w92${p.logo_path}` : null,
+          priority: p.display_priority ?? 99,
+        })
+      }
+    } catch { /* one of the two is enough */ }
+  }
+  return [...seen.values()].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name))
 }

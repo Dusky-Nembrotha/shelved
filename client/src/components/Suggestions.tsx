@@ -33,6 +33,7 @@ interface RecResponse {
   computed_at?: string
   genres?: GenreCount[]
   genre?: string | null
+  canFilterByService?: boolean
 }
 
 /**
@@ -68,6 +69,10 @@ export function Suggestions({ type, genre = null, onGenre }: {
   const [sort, setSort] = useState<'match' | 'rating' | 'released'>('match')
   // Kept aside so narrowing to a genre does not shorten the list of genres.
   const [genres, setGenres] = useState<GenreCount[]>([])
+  // Narrowed to what you subscribe to. Off unless asked: a list that quietly
+  // hid most of itself would be a worse list, not a better one.
+  const [onServices, setOnServices] = useState(false)
+  const [canFilter, setCanFilter] = useState(false)
   const [limit, setLimit] = useState(PAGE)
   const [more, setMore] = useState(false)
   // The ranking runs out eventually; stop asking once it has.
@@ -90,9 +95,11 @@ export function Suggestions({ type, genre = null, onGenre }: {
     try {
       const res = await api.get<RecResponse>(
         `/recommendations?type=${type}&limit=${want}${force ? '&force=1' : ''}`
-        + `${genre ? `&genre=${encodeURIComponent(genre)}` : ''}`,
+        + `${genre ? `&genre=${encodeURIComponent(genre)}` : ''}`
+        + `${onServices ? '&onServices=1' : ''}`,
       )
       if (res.genres?.length) setGenres(res.genres)
+      setCanFilter(Boolean(res.canFilterByService))
       /*
        * Asking for more must not rearrange what you are already looking at.
        * The ranking is recomputed for the longer list and can shuffle near
@@ -122,7 +129,7 @@ export function Suggestions({ type, genre = null, onGenre }: {
     setLimit(PAGE); setDone(false); inFlight.current = false
     void load(false, PAGE)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, genre])
+  }, [type, genre, onServices])
 
   /*
    * The card offers the one answer a suggestion usually wants — yes, I have
@@ -308,6 +315,9 @@ export function Suggestions({ type, genre = null, onGenre }: {
                 <div className="poster__sub u-trunc">
                   {[pick.year, creatorLine(pick.creators, 1)].filter(Boolean).join(' \u00b7 ')}
                 </div>
+                {pick.on_services?.length ? (
+                  <div className="onservice u-trunc">{pick.on_services.map((p) => p.name).join(' \u00b7 ')}</div>
+                ) : null}
               </div>
 
               {marked[pick.fingerprint] != null ? (

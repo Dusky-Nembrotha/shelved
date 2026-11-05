@@ -16,3 +16,5 @@ data/
 # GitHub Actions needs the "workflow" OAuth scope to push. Kept on disk;
 # run: gh auth refresh -s workflow   then: git add -f .github
 .github/
+exports/
+.claude/

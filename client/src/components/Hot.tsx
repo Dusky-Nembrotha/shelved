@@ -24,6 +24,7 @@ interface HotItem {
   work_id: number | null
   inLibrary: boolean
   onList: boolean
+  on_services?: { id: number; name: string; logo: string | null }[] | null
 }
 
 const BATCH = 18
@@ -61,6 +62,10 @@ export function Hot({ type, genre = null, onGenre }: {
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
   const [sort, setSort] = useState<'hot' | 'rating' | 'released'>('hot')
   const [genres, setGenres] = useState<GenreCount[]>([])
+  // Narrowed to what you subscribe to. Off unless asked: a chart that quietly
+  // hid most of itself would be a worse chart, not a better one.
+  const [onServices, setOnServices] = useState(false)
+  const [canFilter, setCanFilter] = useState(false)
 
   const sentinel = useRef<HTMLDivElement>(null)
   const offset = useRef(0)
@@ -73,10 +78,11 @@ export function Hot({ type, genre = null, onGenre }: {
     try {
       const res = await api.get<{
         source: string | null; items: HotItem[]; hasMore: boolean
-        unsupported?: boolean; genres?: GenreCount[]
+        unsupported?: boolean; genres?: GenreCount[]; canFilterByService?: boolean
       }>(
-        `/hot${qs({ type, limit: BATCH, offset: offset.current, sort, genre })}`,
+        `/hot${qs({ type, limit: BATCH, offset: offset.current, sort, genre, onServices: onServices ? 1 : null })}`,
       )
+      setCanFilter(Boolean(res.canFilterByService))
       setSource(res.source)
       if (res.genres?.length) setGenres(res.genres)
       setUnsupported(Boolean(res.unsupported))
@@ -95,7 +101,7 @@ export function Hot({ type, genre = null, onGenre }: {
       setLoading(false)
       setMore(false)
     }
-  }, [type, done, sort, genre, toast])
+  }, [type, done, sort, genre, onServices, toast])
 
   // Start again from the top whenever the library changes.
   // Start again from the top when the library or the ordering changes.
@@ -105,7 +111,7 @@ export function Hot({ type, genre = null, onGenre }: {
     setItems([]); setDone(false); setLoading(true); setAdded({})
     void loadMore()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, sort, genre])
+  }, [type, sort, genre, onServices])
 
   // Top up when the bottom of the list comes into view.
   useEffect(() => {
@@ -171,6 +177,15 @@ export function Hot({ type, genre = null, onGenre }: {
           sort chips, which is the part that acts on it. */}
       <div className="controlbar">
         <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
+        {canFilter && (
+          <button
+            className={`chip${onServices ? ' is-on' : ''}`}
+            onClick={() => setOnServices((v) => !v)}
+            title="Only what is included with a service you subscribe to"
+          >
+            <Icon name="play" size={12} /> On my services
+          </button>
+        )}
         <div
           className="chiprow"
           title={`What is being watched, read and talked about most right now · ${source ?? ''}`}
@@ -201,6 +216,10 @@ export function Hot({ type, genre = null, onGenre }: {
               <div className="poster__sub u-trunc">
                 {[item.year, creatorLine(item.creators, 1)].filter(Boolean).join(' · ')}
               </div>
+              {/* Which service, so the filter's answer is visible per card. */}
+              {item.on_services?.length ? (
+                <div className="onservice u-trunc">{item.on_services.map((p) => p.name).join(' · ')}</div>
+              ) : null}
             </div>
           )
 

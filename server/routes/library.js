@@ -10,7 +10,8 @@ import { join } from 'node:path'
 import { DATA_DIR } from '../lib/db.js'
 import { qualityOf } from '../lib/imagesize.js'
 import { queueEnrichment, prioritise } from '../enrich.js'
-import { setting } from '../lib/settings.js'
+import { setting, saveSettings } from '../lib/settings.js'
+import { myServiceIds, haveServices, canFilterByService, filterToServices } from '../lib/streaming.js'
 import { currentUserId } from '../lib/user.js'
 
 export const router = Router()
@@ -504,6 +505,27 @@ router.get('/artwork/fetch', async (req, res) => {
   // after the URL it came from, so its contents never change.
   res.set('Cache-Control', 'public, max-age=2592000, immutable')
   res.sendFile(join(DATA_DIR, got.path.replace('/artwork/', 'artwork/')))
+})
+
+/**
+ * The streaming services you could pick from, and the ones you have.
+ *
+ * TMDB lists a hundred and forty-odd for the UK, most of which nobody has
+ * heard of, so they arrive in TMDB's own order — roughly by how many people
+ * use them — and the page shows the first handful prominently.
+ */
+router.get('/watch/services', async (req, res) => {
+  const region = String(setting('watch_region') || 'GB').toUpperCase()
+  const available = await tmdb.availableProviders(region).catch(() => [])
+  res.json({ region, available, selected: myServiceIds() })
+})
+
+router.put('/watch/services', (req, res) => {
+  const ids = Array.isArray(req.body?.selected)
+    ? [...new Set(req.body.selected.map(Number).filter((n) => Number.isFinite(n) && n > 0))]
+    : []
+  saveSettings({ watch_services: JSON.stringify(ids) })
+  res.json({ ok: true, selected: ids })
 })
 
 /** Everything whose cover is too small to look right. */
@@ -1078,6 +1100,18 @@ router.get('/hot', async (req, res) => {
   }
 
   /*
+   * Only what you can actually press play on, when asked for.
+   *
+   * Applied before the genres are counted and before paging, so the picker
+   * describes the chart you are looking at and page two is more of the same
+   * chart rather than more of the unfiltered one.
+   */
+  const onServices = req.query.onServices === '1' && canFilterByService(type) && haveServices()
+  if (onServices) {
+    items = await filterToServices(items, type, { region: String(setting('watch_region') || 'GB').toUpperCase() })
+  }
+
+  /*
    * What the chart contains, before any of it is filtered away — so the
    * picker offers the genres that are actually in today's chart rather than
    * a fixed list, and still offers them once one has been chosen.
@@ -1129,6 +1163,8 @@ router.get('/hot', async (req, res) => {
     sort,
     genres,
     genre: wantGenre || null,
+    onServices,
+    canFilterByService: canFilterByService(type) && haveServices(),
     offset,
     hasMore: offset + limit < total,
     items: items.map((item) => {
@@ -1151,6 +1187,8 @@ router.get('/hot', async (req, res) => {
         work_id: id,
         inLibrary: Boolean(id),
         onList: onList.has(key),
+        // Which of your services carries it, when the chart was narrowed.
+        on_services: item.on_services ?? null,
       }
     }),
   })

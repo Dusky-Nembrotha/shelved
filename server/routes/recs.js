@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { all, get, run, json } from '../lib/db.js'
 import { recommend, blockRecommendation, profileSummary } from '../recommend.js'
 import { genreFacets, matchesGenre } from '../lib/genres.js'
+import { canFilterByService, haveServices, filterToServices } from '../lib/streaming.js'
+import { setting } from '../lib/settings.js'
 import { enrich } from '../providers/index.js'
 import { upsertWork } from '../lib/works.js'
 import { queueEnrichment } from '../enrich.js'
@@ -122,17 +124,38 @@ router.get('/recommendations', async (req, res) => {
      * way, so the wider ask costs nothing after the first.
      */
     const result = await recommend(type, {
-      limit: wantGenre ? 90 : limit,
+      limit: (wantGenre || req.query.onServices === '1') ? 90 : limit,
       force: req.query.force === '1',
       breadth: Number(req.query.breadth) || Math.min(2.5, 1 + (limit - 18) / 36),
     })
 
     const genres = genreFacets(result.picks)
-    const picks = wantGenre
+    let picks = wantGenre
       ? result.picks.filter((p) => matchesGenre(p, wantGenre))
       : result.picks
 
-    res.json({ ...result, picks: picks.slice(0, limit), genres, genre: wantGenre || null })
+    /*
+     * Narrowed to what you subscribe to, if asked. The whole ranking is
+     * checked rather than the first page of it, so a suggestion deep in the
+     * list that happens to be on Netflix can still surface — stopping once
+     * there are enough, since each title is a lookup.
+     */
+    const onServices = req.query.onServices === '1' && canFilterByService(type) && haveServices()
+    if (onServices) {
+      picks = await filterToServices(picks, type, {
+        region: String(setting('watch_region') || 'GB').toUpperCase(),
+        need: limit,
+      })
+    }
+
+    res.json({
+      ...result,
+      picks: picks.slice(0, limit),
+      genres,
+      genre: wantGenre || null,
+      onServices,
+      canFilterByService: canFilterByService(type) && haveServices(),
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

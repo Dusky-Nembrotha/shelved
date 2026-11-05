@@ -1381,3 +1381,62 @@ a.pubrating:hover { border-color: var(--accent-line); background: rgba(10, 9, 12
   color: #fff;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
 }
+
+/* The streaming services you subscribe to, as a wall of logos to tick. */
+.services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+.service {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  text-align: left;
+  transition: border-color var(--fast), background var(--fast);
+}
+.service:hover { border-color: var(--hairline-strong); background: var(--surface-2); }
+.service.is-on { border-color: var(--accent-line); background: var(--accent-soft); }
+.service img {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.service__initial {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-3);
+  font-weight: 700;
+}
+.service__name { font-size: 12.5px; min-width: 0; }
+.service__tick {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Which service carries it, when a list has been narrowed to your own. */
+.onservice {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--good);
+}

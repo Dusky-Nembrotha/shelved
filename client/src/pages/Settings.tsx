@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { StreamingPicker } from '../components/StreamingPicker'
 import { Link } from 'react-router-dom'
 import { PoorArtworkList } from '../components/ArtworkPicker'
 import { Icon } from '../components/Icon'
@@ -119,6 +120,16 @@ export function SettingsPage() {
             </div>
             <Link className="btn" to="/connections"><Icon name="key" size={15} /> Manage</Link>
           </div>
+        </section>
+
+        <section className="card card--pad-lg">
+          <h2 style={{ marginBottom: 4 }}>Your streaming services</h2>
+          <p className="u-sm u-mut" style={{ marginBottom: 14 }}>
+            Tick what you subscribe to and both the chart and your suggestions can be narrowed to
+            things you can press play on tonight. Renting and buying are not counted — the question
+            is what you can watch without paying again.
+          </p>
+          <StreamingPicker />
         </section>
 
         <section className="card card--pad-lg">

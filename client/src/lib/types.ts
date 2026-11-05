@@ -121,6 +121,8 @@ export interface Pick {
   reasons: string[]
   fingerprint: string
   provider: string | null
+  /** Which of your services carries it, when the list was narrowed. */
+  on_services?: { id: number; name: string; logo: string | null }[] | null
   ids: Record<string, string | null>
 }
 
