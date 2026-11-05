@@ -1164,7 +1164,8 @@ router.get('/hot', async (req, res) => {
     genres,
     genre: wantGenre || null,
     onServices,
-    canFilterByService: canFilterByService(type) && haveServices(),
+    canFilterByService: canFilterByService(type),
+    haveServices: haveServices(),
     offset,
     hasMore: offset + limit < total,
     items: items.map((item) => {

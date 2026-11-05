@@ -154,7 +154,8 @@ router.get('/recommendations', async (req, res) => {
       genres,
       genre: wantGenre || null,
       onServices,
-      canFilterByService: canFilterByService(type) && haveServices(),
+      canFilterByService: canFilterByService(type),
+      haveServices: haveServices(),
     })
   } catch (err) {
     res.status(500).json({ error: err.message })

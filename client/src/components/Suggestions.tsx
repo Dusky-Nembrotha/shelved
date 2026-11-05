@@ -34,6 +34,7 @@ interface RecResponse {
   genres?: GenreCount[]
   genre?: string | null
   canFilterByService?: boolean
+  haveServices?: boolean
 }
 
 /**
@@ -73,6 +74,10 @@ export function Suggestions({ type, genre = null, onGenre }: {
   // hid most of itself would be a worse list, not a better one.
   const [onServices, setOnServices] = useState(false)
   const [canFilter, setCanFilter] = useState(false)
+  // Whether any services have been chosen yet. Separate from whether the
+  // filter applies at all, so the chip can invite you to pick some rather
+  // than hiding and leaving the feature undiscoverable.
+  const [haveServices, setHaveServices] = useState(false)
   const [limit, setLimit] = useState(PAGE)
   const [more, setMore] = useState(false)
   // The ranking runs out eventually; stop asking once it has.
@@ -100,6 +105,7 @@ export function Suggestions({ type, genre = null, onGenre }: {
       )
       if (res.genres?.length) setGenres(res.genres)
       setCanFilter(Boolean(res.canFilterByService))
+      setHaveServices(Boolean(res.haveServices))
       /*
        * Asking for more must not rearrange what you are already looking at.
        * The ranking is recomputed for the longer list and can shuffle near
@@ -216,6 +222,23 @@ export function Suggestions({ type, genre = null, onGenre }: {
         */}
       <div className="controlbar">
         <GenrePick genres={genres} value={genre} onChange={(g) => onGenre?.(g)} />
+        {canFilter && (haveServices ? (
+          <button
+            className={`chip${onServices ? ' is-on' : ''}`}
+            onClick={() => setOnServices((v) => !v)}
+            title="Only what is included with a service you subscribe to"
+          >
+            <Icon name="play" size={12} /> On my services
+          </button>
+        ) : (
+          <Link
+            className="chip"
+            to="/settings"
+            title="Tick the services you subscribe to, then this filters to what you can watch"
+          >
+            <Icon name="play" size={12} /> Pick my services
+          </Link>
+        ))}
         <div className="chiprow">
           {([['match', 'Best match'], ['rating', 'Best rated'], ['released', 'Newest']] as const).map(([v, label]) => (
             <button key={v} className={`chip${sort === v ? ' is-on' : ''}`} onClick={() => setSort(v)}>{label}</button>
