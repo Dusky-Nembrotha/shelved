@@ -24,12 +24,24 @@
  */
 import { all, run, json } from '../server/lib/db.js'
 import * as itunes from '../server/providers/itunes.js'
+import * as mb from '../server/providers/musicbrainz.js'
+import { fetchText } from '../server/lib/fetchv4.js'
 import { normaliseTitle } from '../server/lib/util.js'
 
 const apply = process.argv.includes('--apply')
 const limitArg = process.argv.indexOf('--limit')
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 0
 const gapArg = process.argv.indexOf('--gap')
+const sourceArg = process.argv.indexOf('--source')
+/*
+ * Which catalogue to ask. Apple has the better matching but throttles a bulk
+ * run into the ground — twenty albums an hour, when it feels like it.
+ * MusicBrainz documents one request a second and keeps to it, and the Cover
+ * Art Archive has the sleeve for most things with a release group.
+ */
+const source = sourceArg > -1 ? String(process.argv[sourceArg + 1] || '') : 'musicbrainz'
+const useMb = source !== 'itunes'
+const useApple = source !== 'musicbrainz'
 const gapArg2 = gapArg > -1 ? Number(process.argv[gapArg + 1]) : NaN
 // A missing or junk --gap used to mean sleep(NaN), which is no pacing at all.
 const gap = Number.isFinite(gapArg2) && gapArg2 >= 0 ? gapArg2 : 3200
@@ -65,6 +77,62 @@ let found = 0
 let covered = 0
 let missed = 0
 
+/** Does the Cover Art Archive actually hold this sleeve? */
+async function caaHasArt(url) {
+  if (!url) return false
+  try {
+    // A redirect to archive.org is the yes; a 404 is the no. Following it
+    // would download the image, which is the browser's job, not ours.
+    const res = await fetchText(url, {
+      method: 'HEAD',
+      // Not followed: a redirect to archive.org is the "yes" we are after,
+      // and following it would download the image, which is the browser's
+      // job rather than ours.
+      redirects: 0,
+      headers: { 'User-Agent': 'Shelved/0.1 (self-hosted personal media log)' },
+      timeout: 15000,
+    })
+    return res.status === 307 || res.status === 302 || res.status === 200
+  } catch {
+    return false
+  }
+}
+
+function looksLike(hit, wantAlbum, wantArtist) {
+  const title = normaliseTitle(hit.title || '')
+  const byline = (hit.creators || []).map((c) => normaliseTitle(c.name)).join(' ')
+  const titleOk = title === wantAlbum || title.startsWith(wantAlbum) || wantAlbum.startsWith(title)
+  return titleOk && (byline.includes(wantArtist) || wantArtist.includes(byline))
+}
+
+/** The sleeve for one album, from whichever catalogue has it. */
+async function coverFor(job) {
+  const wantAlbum = normaliseTitle(job.album)
+  const wantArtist = normaliseTitle(job.artist)
+  const term = `${job.artist} ${job.album}`
+
+  if (useMb) {
+    const hits = await mb.searchAlbums(term, 5).catch(() => [])
+    for (const hit of hits) {
+      if (!looksLike(hit, wantAlbum, wantArtist)) continue
+      // MusicBrainz answers for releases it has no artwork for, so the
+      // archive is asked before the URL is written to the library.
+      if (await caaHasArt(hit.poster_url)) return { url: hit.poster_url, via: 'musicbrainz', answered: true }
+    }
+    if (hits.length) return { url: null, via: 'musicbrainz', answered: true }
+  }
+
+  if (useApple) {
+    const hits = await itunes.search('album', term, 5).catch(() => [])
+    const hit = hits.find((h) => looksLike(h, wantAlbum, wantArtist))
+    if (hit?.poster_url) return { url: hit.poster_url, via: 'itunes', answered: true }
+    if (hits.length) return { url: null, via: 'itunes', answered: true }
+  }
+
+  // Nothing at all from anywhere: either an obscure record or a throttle.
+  return { url: null, via: null, answered: false }
+}
+
 let dry = 0
 let backoffs = 0
 
@@ -81,7 +149,7 @@ let done = 0
 while (queue.length) {
   const job = queue.shift()
   if (done) await sleep(gap)
-  const hits = await itunes.search('album', `${job.artist} ${job.album}`, 5).catch(() => [])
+  const cover = await coverFor(job)
 
   /*
    * Nothing back at all, repeatedly, is the throttle rather than an obscure
@@ -89,7 +157,7 @@ while (queue.length) {
    * Apple answers 403 or 429 with an empty body, so an empty result is the
    * only symptom there is.
    */
-  if (!hits.length) {
+  if (!cover.answered) {
     queue.unshift(job)
     if (++dry >= 5) {
       /*
@@ -115,23 +183,14 @@ while (queue.length) {
   backoffs = 0
   done++
 
-  const wantAlbum = normaliseTitle(job.album)
-  const wantArtist = normaliseTitle(job.artist)
-  const hit = hits.find((h) => {
-    const title = normaliseTitle(h.title)
-    const byline = (h.creators || []).map((c) => normaliseTitle(c.name)).join(' ')
-    const titleOk = title === wantAlbum || title.startsWith(wantAlbum) || wantAlbum.startsWith(title)
-    return titleOk && (byline.includes(wantArtist) || wantArtist.includes(byline))
-  })
-
-  if (!hit?.poster_url) { missed++; continue }
+  if (!cover.url) { missed++; continue }
   found++
   for (const id of job.ids) {
     // Count what the database actually changed, not what was attempted: the
     // guard means another run may have covered this one already.
     const { changes } = run(
       "UPDATE works SET poster_url = ?, updated_at = datetime('now') WHERE id = ? AND poster_url IS NULL",
-      hit.poster_url, id,
+      cover.url, id,
     )
     covered += changes || 0
   }

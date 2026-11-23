@@ -51,12 +51,41 @@ function actKey(name) {
  * Clark", "Opeth with special guests". Every part is tried, and the whole
  * string too, because plenty of band names contain an "and".
  */
-const BILL_SPLIT = /\s*(?:\/|\+|,|•|\u2022|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:)\s*/i
+const BILL_SPLIT = /\s*(?:\/|\+|&|,|•|\u2022|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:|\s[–—-]\s)\s*/i
 
 function actsIn(billing) {
   const whole = String(billing || '').trim()
+  /*
+   * The whole string as well as its parts, because "Florence & the Machine"
+   * and "Godspeed You! Black Emperor" are one act with a separator in the
+   * middle. Splitting can only add candidates, never remove the original,
+   * and every candidate still has to match an artist exactly.
+   */
   const parts = [whole, ...whole.split(BILL_SPLIT)]
   return [...new Set(parts.map(actKey).filter((p) => p.length > 2))]
+}
+
+/* Words that mean "about this band" rather than "this band". */
+const TRIBUTE = /\b(tribute|tributes|plays|play|performed|performing|alive|celebration|celebrating|genius of|songs of|music of|experience|a night of|reimagined|unplugged|covers?)\b/i
+
+/**
+ * Artists whose name is distinctive enough to look for inside a billing.
+ *
+ * Containment is a much blunter instrument than an exact match: searching
+ * six hundred bills for every one of twelve hundred artists turns up Love in
+ * "A Love Letter", DOWN in "Boogie Down Bristol" and Death in "Moscow Death
+ * Brigade". So it is only done for artists you have a real stake in, whose
+ * names are long enough or wordy enough to mean something on their own.
+ */
+function searchableArtists(byAct) {
+  const out = []
+  for (const [k, a] of byAct) {
+    if (a.tracks < 3) continue
+    const words = k.split(' ').length
+    if (words < 2 && k.length < 6) continue
+    out.push([k, a])
+  }
+  return out
 }
 
 /**
@@ -269,6 +298,8 @@ router.get('/gigs', async (req, res) => {
    * becomes the plain what's-on below it.
    */
   const whatsOn = []
+  const mentions = []
+  const searchable = searchableArtists(byAct)
   for (const ev of local.events) {
     const fingerprint = `${key(ev.name)}|${ev.date}|${key(ev.venue || '')}`
     if (seen.has(fingerprint)) continue
@@ -306,9 +337,47 @@ router.get('/gigs', async (req, res) => {
         })),
         score: hits[0].score,
       })
-    } else {
-      whatsOn.push({ ...shaped, why: [] })
+      continue
     }
+
+    /*
+     * Not them, but about them.
+     *
+     * Half of what a city's small venues put on is a tribute, a covers night
+     * or an anniversary: "The Doors Alive", "Hey Pixies", "Ex-Presidents
+     * play Nirvana Unplugged", "The Genius of David Bowie". Those are not
+     * the band and must never be listed as though they were — but if you
+     * have nineteen Nirvana tracks you probably want to know, so they get
+     * their own list and are described as what they are.
+     *
+     * The venue check is not fussiness: The Jam Jar is a venue, and "The Jam
+     * Jar NYE" was matching The Jam.
+     */
+    const venueKey = actKey(ev.venue || '')
+    const hay = ` ${actKey(ev.name)} `
+    const found = searchable
+      .filter(([k]) => hay.includes(` ${k} `) && !venueKey.includes(k))
+      .map(([, a]) => a)
+      .sort((a, b) => b.tracks - a.tracks)
+
+    if (found.length) {
+      const act = found[0]
+      const isTribute = TRIBUTE.test(ev.name)
+      mentions.push({
+        ...shaped,
+        why: [{
+          artist: act.name,
+          tracks: act.tracks,
+          reason: isTribute
+            ? `A tribute to ${act.name}, not ${act.name} — you have ${act.tracks} of their tracks`
+            : `${act.name} is named on the bill — you have ${act.tracks} of their tracks`,
+        }],
+        score: act.score,
+      })
+      continue
+    }
+
+    whatsOn.push({ ...shaped, why: [] })
   }
 
   /* Yours by date: it is a diary, and you need to know what you might miss.
@@ -316,6 +385,7 @@ router.get('/gigs', async (req, res) => {
   const byDate = (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || String(a.date).localeCompare(String(b.date))
   yours.sort(byDate)
   similar.sort((a, b) => b.score - a.score || byDate(a, b))
+  mentions.sort(byDate)
   whatsOn.sort(byDate)
 
   res.json({
@@ -328,6 +398,8 @@ router.get('/gigs', async (req, res) => {
     warnings,
     yours,
     similar: similar.slice(0, 40),
+    /* Tributes, covers nights and anniversaries of bands you listen to. */
+    mentions,
     /* The rest of what is on, which is a gig guide rather than a suggestion
        — so it is a month of it, not four. */
     whatsOn: whatsOn.filter((g) => g.date <= new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10)),

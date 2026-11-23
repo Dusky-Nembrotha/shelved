@@ -34,6 +34,8 @@ interface GigsResponse {
   knownArtists: number
   yours: Gig[]
   similar: Gig[]
+  /** Tributes, covers nights and anniversaries of bands you listen to. */
+  mentions: Gig[]
   /** Everything else at the city's music venues — a listing, not a suggestion. */
   whatsOn: Gig[]
   sources: { id: string; label: string; events: number }[]
@@ -148,9 +150,10 @@ export function Gigs() {
 
   const yours = data?.yours ?? []
   const similar = data?.similar ?? []
+  const mentions = data?.mentions ?? []
   const whatsOn = data?.whatsOn ?? []
 
-  if (!yours.length && !similar.length && !whatsOn.length) {
+  if (!yours.length && !similar.length && !mentions.length && !whatsOn.length) {
     return (
       <Empty icon="mic" title={`Nothing on near ${data?.city ?? 'you'}`}>
         {data?.counted
@@ -184,6 +187,23 @@ export function Gigs() {
       )}
 
       {/*
+        * Not them, but about them. A covers night for a band you love is
+        * worth knowing about and is not the band, so it is neither hidden
+        * nor promoted into the list above: it sits here and says which it is.
+        */}
+      {mentions.length > 0 && (
+        <div className="u-col" style={{ gap: 8 }}>
+          <span className="u-caps">Tributes and nights about them</span>
+          <span className="u-xs u-mut" style={{ marginTop: -4 }}>
+            Bands you listen to, named on the bill of something that is not them.
+          </span>
+          <div className="u-col" style={{ gap: 8 }}>
+            {mentions.map((g) => <GigRow key={g.id} gig={g} />)}
+          </div>
+        </div>
+      )}
+
+      {/*
         * The rest of it, as a listing rather than a recommendation. The
         * scraped half of this knows no genres, so there is no honest way to
         * narrow four hundred gigs down to the ones you would like — but a
@@ -193,9 +213,10 @@ export function Gigs() {
         */}
       {whatsOn.length > 0 && (
         <div className="u-col" style={{ gap: 8 }}>
-          <span className="u-caps">Else on in {data?.city}</span>
+          <span className="u-caps">Everything else on in {data?.city}</span>
           <span className="u-xs u-mut" style={{ marginTop: -4 }}>
-            The next month at the city's music venues — nobody you listen to, so make of it what you will.
+            The whole of the next month at the city's music venues, nobody you listen to among them —
+            a gig guide rather than a suggestion, because without genres there is no honest way to narrow it.
           </span>
           <div className="u-col" style={{ gap: 8 }}>
             {whatsOn.slice(0, shown).map((g) => <GigRow key={g.id} gig={g} />)}

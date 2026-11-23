@@ -139,8 +139,16 @@ export function parseListings(html, { today = new Date() } = {}) {
      * the end. The acts are what gets matched against your library, so both
      * suffixes come off.
      */
+    /*
+     * Their listing titles carry sales furniture on the end: "Hayseed Dixie
+     * in Bristol Tickets", "… at The Louisiana", "… tickets". All of it has
+     * to come off before the billing can be matched against your library —
+     * with "Tickets" still attached, Hayseed Dixie was not Hayseed Dixie.
+     */
     let title = strip(anchor?.[1] || alt?.[1] || '')
+      .replace(/\s+tickets?$/i, '')
       .replace(/\s+(?:in Bristol|at .+)$/i, '')
+      .replace(/\s+tickets?$/i, '')
       .trim()
     if (!title) continue
 
