@@ -9,6 +9,7 @@ import { Empty, Modal } from '../components/Modal'
 import { Suggestions } from '../components/Suggestions'
 import { Hot } from '../components/Hot'
 import { Gigs } from '../components/Gigs'
+import { ArtistShelf } from '../components/ArtistShelf'
 import { useApp, useFetch } from '../lib/store'
 import { qs } from '../lib/api'
 import { SECTION_META, creatorLine, fmtDate, fmtRuntime, relDate } from '../lib/format'
@@ -194,6 +195,20 @@ export function SectionPage({ type }: { type: MediaType }) {
             : tab === 'hot'
               ? <Hot type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />
               : <Suggestions type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />}
+      </div>
+    )
+  }
+
+  /*
+   * Music is listed by artist, not by track. Six thousand songs is not a
+   * shelf anybody reads; the band is what you are looking for, and their
+   * tracks are one tap further in.
+   */
+  if (type === 'track' || type === 'album') {
+    return (
+      <div className="page">
+        <SectionTabs type={type} tab={tab} setTab={setTab} />
+        <ArtistShelf type={type} />
       </div>
     )
   }

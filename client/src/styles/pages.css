@@ -1524,3 +1524,14 @@ a.pubrating:hover { border-color: var(--accent-line); background: rgba(10, 9, 12
   .gig { align-items: flex-start; }
   .gig__when { padding-top: 2px; }
 }
+
+/* An artist card is a button rather than a link: it opens their page in a
+   sheet, so the shelf keeps its place behind it. */
+.artistcard {
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}

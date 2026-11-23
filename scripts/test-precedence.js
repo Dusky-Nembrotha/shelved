@@ -1,7 +1,7 @@
 // An import must correct an older import, but never a hand-typed rating.
-import { applyRecords } from '/media/charlie/Extreme SSD/Claude Code/My Media/server/importers/apply.js'
-import { record } from '/media/charlie/Extreme SSD/Claude Code/My Media/server/importers/shared.js'
-import { all, get, run } from '/media/charlie/Extreme SSD/Claude Code/My Media/server/lib/db.js'
+import { applyRecords } from '../server/importers/apply.js'
+import { record } from '../server/importers/shared.js'
+import { all, get, run } from '../server/lib/db.js'
 
 const mk = (rating, source) => record({
   type: 'film', title: 'Precedence Test', year: 2020, rating,

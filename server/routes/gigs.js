@@ -4,6 +4,8 @@ import { setting } from '../lib/settings.js'
 import { normaliseTitle } from '../lib/util.js'
 import * as ticketmaster from '../providers/ticketmaster.js'
 import * as headfirst from '../providers/headfirst.js'
+import * as venuesites from '../providers/venuesites.js'
+import * as mb from '../providers/musicbrainz.js'
 
 export const router = Router()
 
@@ -65,28 +67,13 @@ function actsIn(billing) {
   return [...new Set(parts.map(actKey).filter((p) => p.length > 2))]
 }
 
-/* Words that mean "about this band" rather than "this band". */
-const TRIBUTE = /\b(tribute|tributes|plays|play|performed|performing|alive|celebration|celebrating|genius of|songs of|music of|experience|a night of|reimagined|unplugged|covers?)\b/i
-
-/**
- * Artists whose name is distinctive enough to look for inside a billing.
- *
- * Containment is a much blunter instrument than an exact match: searching
- * six hundred bills for every one of twelve hundred artists turns up Love in
- * "A Love Letter", DOWN in "Boogie Down Bristol" and Death in "Moscow Death
- * Brigade". So it is only done for artists you have a real stake in, whose
- * names are long enough or wordy enough to mean something on their own.
+/*
+ * There was a tribute section here — The Doors Alive, Hey Pixies, Still The
+ * Smiths, found by looking for your artists' names inside a bill. It worked,
+ * and Charlie did not want it: a covers band is not the band, and a list of
+ * them is not what the tab is for. Removed rather than hidden. Those nights
+ * still appear in the plain what's-on below, where they belong.
  */
-function searchableArtists(byAct) {
-  const out = []
-  for (const [k, a] of byAct) {
-    if (a.tracks < 3) continue
-    const words = k.split(' ').length
-    if (words < 2 && k.length < 6) continue
-    out.push([k, a])
-  }
-  return out
-}
 
 /**
  * Who you listen to, and how much.
@@ -136,6 +123,34 @@ function myArtists() {
     }
   }
   return { artists, byAct, genres }
+}
+
+/**
+ * How strongly an act's genres sit in the middle of your taste.
+ *
+ * Scored against your own top genre rather than against the whole pile: with
+ * three hundred and fifty genres across six thousand tracks, every single
+ * one is a small fraction of the total, so "a twentieth of everything you
+ * listen to" is a meaningless bar. "Two-thirds as central to you as metal
+ * is" means something.
+ */
+function affinity(tags, mine, topCount) {
+  if (!topCount || !tags?.length) return 0
+  let best = 0
+  for (const tag of tags) {
+    const t = String(tag).toLowerCase().trim()
+    if (!t) continue
+    let hits = mine.get(t) || 0
+    if (!hits) {
+      // "stoner doom" is not in your library but "stoner rock" and "doom
+      // metal" are; a tag that contains one of yours counts for half.
+      for (const [g, n] of mine) {
+        if (g.length > 3 && (t.includes(g) || g.includes(t))) hits = Math.max(hits, n * 0.5)
+      }
+    }
+    best = Math.max(best, hits / topCount)
+  }
+  return best
 }
 
 /**
@@ -219,6 +234,22 @@ router.get('/gigs', async (req, res) => {
     } catch (err) {
       warnings.push(`Could not read the Bristol listings: ${String(err.message).slice(0, 160)}`)
     }
+
+    /*
+     * And the venues that do not put everything on the listings site. Read
+     * from the cache only: their event pages are fetched one at a time by
+     * the warm-up script, never while somebody is waiting for a page.
+     */
+    try {
+      const direct = await venuesites.events({ days, cacheOnly: true })
+      if (direct.events.length) {
+        sources.push({ id: 'venues', label: 'the venues’ own sites', events: direct.events.length })
+      }
+      warnings.push(...direct.warnings)
+      local = { events: [...local.events, ...direct.events], warnings: local.warnings }
+    } catch (err) {
+      warnings.push(`Could not read the venues' own sites: ${String(err.message).slice(0, 120)}`)
+    }
     // Anything the scraper noticed about itself — a page that answered but
     // could not be read, a venue that has vanished — is said out loud rather
     // than left to look like a quiet month.
@@ -297,17 +328,28 @@ router.get('/gigs', async (req, res) => {
    * that matches joins the same list the box office feeds, and the rest
    * becomes the plain what's-on below it.
    */
+  /*
+   * Your own genres, as a league table. The top one is the yardstick the
+   * acts are measured against; see affinity().
+   */
+  const topGenre = Math.max(0, ...genres.values())
+
   const whatsOn = []
-  const mentions = []
-  const searchable = searchableArtists(byAct)
   for (const ev of local.events) {
     const fingerprint = `${key(ev.name)}|${ev.date}|${key(ev.venue || '')}`
     if (seen.has(fingerprint)) continue
     seen.add(fingerprint)
 
+    /*
+     * A short common word is not an act. "Love - Forever Changes 60th
+     * Anniversary" matched the one Love track in the library, which is a
+     * coincidence rather than a booking; a name of four letters or fewer has
+     * to be backed by more than a track or two before it counts.
+     */
     const hits = actsIn(ev.name)
-      .map((k) => byAct.get(k))
-      .filter(Boolean)
+      .map((k) => [k, byAct.get(k)])
+      .filter(([k, a]) => a && (a.tracks >= 3 || k.includes(' ') || k.length > 4))
+      .map(([, a]) => a)
       .sort((a, b) => b.tracks - a.tracks)
 
     const shaped = {
@@ -341,38 +383,33 @@ router.get('/gigs', async (req, res) => {
     }
 
     /*
-     * Not them, but about them.
+     * Nobody you have, so: is it your sort of thing?
      *
-     * Half of what a city's small venues put on is a tribute, a covers night
-     * or an anniversary: "The Doors Alive", "Hey Pixies", "Ex-Presidents
-     * play Nirvana Unplugged", "The Genius of David Bowie". Those are not
-     * the band and must never be listed as though they were — but if you
-     * have nineteen Nirvana tracks you probably want to know, so they get
-     * their own list and are described as what they are.
-     *
-     * The venue check is not fussiness: The Jam Jar is a venue, and "The Jam
-     * Jar NYE" was matching The Jam.
+     * The listings carry no genres, so the act is looked up in MusicBrainz —
+     * from the cache only, because a page that stops to make six hundred
+     * one-a-second requests is not a page. A background pass keeps the cache
+     * filled; anything not in it yet simply has no genres today and appears
+     * in the plain listing below.
      */
-    const venueKey = actKey(ev.venue || '')
-    const hay = ` ${actKey(ev.name)} `
-    const found = searchable
-      .filter(([k]) => hay.includes(` ${k} `) && !venueKey.includes(k))
-      .map(([, a]) => a)
-      .sort((a, b) => b.tracks - a.tracks)
+    let affinityScore = 0
+    let matchedTags = []
+    for (const act of actsIn(ev.name).slice(0, 3)) {
+      const tags = await mb.artistTags(act, { cacheOnly: true })
+      if (!tags?.found || !tags.genres.length) continue
+      const score = affinity(tags.genres, genres, topGenre)
+      if (score > affinityScore) { affinityScore = score; matchedTags = tags.genres }
+    }
 
-    if (found.length) {
-      const act = found[0]
-      const isTribute = TRIBUTE.test(ev.name)
-      mentions.push({
+    if (affinityScore >= 0.3) {
+      similar.push({
         ...shaped,
+        genres: matchedTags.slice(0, 3),
         why: [{
-          artist: act.name,
-          tracks: act.tracks,
-          reason: isTribute
-            ? `A tribute to ${act.name}, not ${act.name} — you have ${act.tracks} of their tracks`
-            : `${act.name} is named on the bill — you have ${act.tracks} of their tracks`,
+          artist: null,
+          tracks: 0,
+          reason: `${matchedTags.slice(0, 2).join(' · ')} — your sort of thing`,
         }],
-        score: act.score,
+        score: affinityScore,
       })
       continue
     }
@@ -385,7 +422,6 @@ router.get('/gigs', async (req, res) => {
   const byDate = (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || String(a.date).localeCompare(String(b.date))
   yours.sort(byDate)
   similar.sort((a, b) => b.score - a.score || byDate(a, b))
-  mentions.sort(byDate)
   whatsOn.sort(byDate)
 
   res.json({
@@ -398,8 +434,6 @@ router.get('/gigs', async (req, res) => {
     warnings,
     yours,
     similar: similar.slice(0, 40),
-    /* Tributes, covers nights and anniversaries of bands you listen to. */
-    mentions,
     /* The rest of what is on, which is a gig guide rather than a suggestion
        — so it is a month of it, not four. */
     whatsOn: whatsOn.filter((g) => g.date <= new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10)),

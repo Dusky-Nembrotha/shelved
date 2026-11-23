@@ -1,4 +1,5 @@
 import { fetchJson } from '../lib/http.js'
+import { get } from '../lib/db.js'
 import { parseYear } from '../lib/util.js'
 
 // Keyless (rate-limited to ~1 req/sec, which lib/http.js enforces).
@@ -43,6 +44,63 @@ export async function searchAlbums(term, limit = 10) {
       .filter(Boolean)
   } catch {
     return []
+  }
+}
+
+/**
+ * What an artist plays, in MusicBrainz's own words.
+ *
+ * The listings sites publish no genres at all — Headfirst gives a billing, a
+ * venue and a date — so without this there is no way to tell that Green Lung
+ * is stoner doom and therefore squarely your sort of thing. MusicBrainz's
+ * community tags are uneven but free, keyless and cached for a month.
+ *
+ * `cacheOnly` is how the gigs page stays instant: it reads whatever has
+ * already been looked up and asks for nothing. A background pass fills the
+ * cache in; until it has, an act simply has no genres and falls through to
+ * the plain listing, which is the honest answer rather than a slow page.
+ */
+export async function artistTags(name, { cacheOnly = false } = {}) {
+  const term = String(name || '').trim()
+  if (term.length < 2) return null
+  const url = `${BASE}/artist?query=${encodeURIComponent(`artist:"${term}"`)}&fmt=json&limit=3`
+
+  if (cacheOnly) {
+    const row = get("SELECT body FROM http_cache WHERE key = ? AND expires_at > datetime('now')", `GET ${url}`)
+    if (!row) return null
+    try { return tagsFrom(JSON.parse(row.body), term) } catch { return null }
+  }
+
+  try {
+    const data = await fetchJson(url, { ttlSeconds: 60 * 60 * 24 * 30 })
+    return tagsFrom(data, term)
+  } catch {
+    return null
+  }
+}
+
+/*
+ * Only an exact name match counts. A fuzzy one is how "Love" becomes a
+ * Californian psych band and every club night with love in its name starts
+ * recommending itself.
+ */
+function tagsFrom(data, term) {
+  const want = term.toLowerCase()
+  const artist = (data?.artists || []).find((a) => {
+    if (String(a.name || '').toLowerCase() === want) return true
+    return (a.aliases || []).some((al) => String(al.name || '').toLowerCase() === want)
+  })
+  if (!artist) return { found: false, genres: [] }
+  const tags = [...(artist.genres || []), ...(artist.tags || [])]
+    .filter((t) => t?.name && (t.count ?? 1) > 0)
+    .sort((a, b) => (b.count || 0) - (a.count || 0))
+    .map((t) => t.name)
+  return {
+    found: true,
+    name: artist.name,
+    mbid: artist.id,
+    country: artist.country || null,
+    genres: [...new Set(tags)].slice(0, 10),
   }
 }
 

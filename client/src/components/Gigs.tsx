@@ -34,8 +34,6 @@ interface GigsResponse {
   knownArtists: number
   yours: Gig[]
   similar: Gig[]
-  /** Tributes, covers nights and anniversaries of bands you listen to. */
-  mentions: Gig[]
   /** Everything else at the city's music venues — a listing, not a suggestion. */
   whatsOn: Gig[]
   sources: { id: string; label: string; events: number }[]
@@ -150,10 +148,9 @@ export function Gigs() {
 
   const yours = data?.yours ?? []
   const similar = data?.similar ?? []
-  const mentions = data?.mentions ?? []
   const whatsOn = data?.whatsOn ?? []
 
-  if (!yours.length && !similar.length && !mentions.length && !whatsOn.length) {
+  if (!yours.length && !similar.length && !whatsOn.length) {
     return (
       <Empty icon="mic" title={`Nothing on near ${data?.city ?? 'you'}`}>
         {data?.counted
@@ -182,23 +179,6 @@ export function Gigs() {
           </span>
           <div className="u-col" style={{ gap: 8 }}>
             {similar.map((g) => <GigRow key={g.id} gig={g} />)}
-          </div>
-        </div>
-      )}
-
-      {/*
-        * Not them, but about them. A covers night for a band you love is
-        * worth knowing about and is not the band, so it is neither hidden
-        * nor promoted into the list above: it sits here and says which it is.
-        */}
-      {mentions.length > 0 && (
-        <div className="u-col" style={{ gap: 8 }}>
-          <span className="u-caps">Tributes and nights about them</span>
-          <span className="u-xs u-mut" style={{ marginTop: -4 }}>
-            Bands you listen to, named on the bill of something that is not them.
-          </span>
-          <div className="u-col" style={{ gap: 8 }}>
-            {mentions.map((g) => <GigRow key={g.id} gig={g} />)}
           </div>
         </div>
       )}

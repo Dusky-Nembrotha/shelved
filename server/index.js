@@ -11,6 +11,7 @@ import { router as imports } from './routes/imports.js'
 import { router as misc } from './routes/misc.js'
 import { router as connections } from './routes/connections.js'
 import { router as gigs } from './routes/gigs.js'
+import { startGigWarmer } from './gigwarm.js'
 import { router as auth } from './routes/auth.js'
 import { requireAuth, applyEnvPassword } from './lib/auth.js'
 import { queueAll, queueAllRecArtwork } from './enrich.js'
@@ -104,7 +105,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  On your network: http://<this-machine>:${PORT}${BASE}`)
   // Say which library is open and how big it is: an empty count here is the
   // fastest way to spot a server that has latched onto the wrong file.
-  const logged = get('SELECT count(*) c FROM entries')?.c ?? 0
+  const logged = get('SELECT count(*) c FROM entries WHERE backfill = 0')?.c ?? 0
   console.log(`  Library: ${DB_PATH} — ${logged} entries\n`)
 
   // A daily snapshot, taken by the app rather than left to anyone remembering.
@@ -122,4 +123,10 @@ app.listen(PORT, '0.0.0.0', () => {
   const pending = queueAll({ onlyMissing: true })
   queueAllRecArtwork()
   if (pending) console.log(`  resuming metadata for ${pending} titles\n`)
+
+  /*
+   * And keep the gig listings warm in the background, so that opening the
+   * Gigs tab is a database read rather than two dozen fetches. See gigwarm.js.
+   */
+  startGigWarmer()
 })

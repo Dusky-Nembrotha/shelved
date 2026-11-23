@@ -21,9 +21,11 @@ const DEFAULTS = {
   /* Where "near me" is, for gigs. A town, and how far you will travel to it. */
   gigs_city: 'Bristol',
   gigs_radius_km: '40',
-  /* How far ahead to look. Beyond about six months the listings are mostly
-     stadium tours that were announced a year out. */
-  gigs_days: '120',
+  /* How far ahead to look. A year, because that is how far ahead the things
+     worth planning for go on sale: the gig that prompted this was King
+     Gizzard at Bristol Sounds, 211 days out and therefore invisible at the
+     120 days this used to default to. */
+  gigs_days: '365',
   /* TMDB provider ids you subscribe to, as JSON. Ids rather than names
      because names differ by region and by ad tier. */
   watch_services: '[]',

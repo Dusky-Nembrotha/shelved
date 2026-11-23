@@ -1834,6 +1834,72 @@ router.get('/search', async (req, res) => {
   })
 })
 
+/**
+ * Your music by the people who made it.
+ *
+ * Six thousand tracks is not a shelf, it is a spreadsheet: nobody scrolls
+ * through "Heard" looking for one song, they look for a band. So the music
+ * library lists artists, each with how much of theirs you have and the
+ * artwork off one of their records, and the artist opens to their own page.
+ *
+ * Grouped in JavaScript rather than SQL because creators live in a JSON
+ * column; at a personal library's size that is a few milliseconds.
+ */
+router.get('/artists', (req, res) => {
+  const type = TYPES.includes(req.query.type) ? req.query.type : 'track'
+  const q = String(req.query.q || '').trim().toLowerCase()
+  const limit = clamp(Number(req.query.limit) || 120, 1, 2000)
+  const offset = Math.max(0, Number(req.query.offset) || 0)
+  const sort = ['count', 'name', 'rating', 'recent'].includes(req.query.sort) ? req.query.sort : 'count'
+
+  const rows = all(`
+    SELECT w.id, w.creators, w.poster_url, w.year, w.genres,
+           (SELECT max(e.rating) FROM entries e WHERE e.work_id = w.id) rating,
+           (SELECT max(ifnull(e.consumed_on, date(e.created_at))) FROM entries e WHERE e.work_id = w.id) last_on
+      FROM works w
+     WHERE w.type = ?
+       AND EXISTS (SELECT 1 FROM entries e WHERE e.work_id = w.id)`, type)
+
+  const artists = new Map()
+  for (const row of rows) {
+    for (const c of json(row.creators, [])) {
+      if (!c?.name || (c.role && c.role !== 'Artist')) continue
+      const key = c.name.trim().toLowerCase()
+      if (!key) continue
+      const slot = artists.get(key) || {
+        name: c.name.trim(), count: 0, poster_url: null, rating: null, last_on: null, genres: new Map(),
+      }
+      slot.count++
+      // The first cover that exists, so a card is not blank while one of
+      // their records has artwork.
+      if (!slot.poster_url && row.poster_url) slot.poster_url = row.poster_url
+      if (row.rating != null) slot.rating = Math.max(slot.rating ?? 0, row.rating)
+      if (row.last_on && (!slot.last_on || row.last_on > slot.last_on)) slot.last_on = row.last_on
+      for (const g of json(row.genres, [])) slot.genres.set(g, (slot.genres.get(g) || 0) + 1)
+      artists.set(key, slot)
+    }
+  }
+
+  let list = [...artists.values()].map((a) => ({
+    ...a,
+    // Their two commonest genres, which is as much as a card can show.
+    genres: [...a.genres.entries()].sort((x, y) => y[1] - x[1]).slice(0, 2).map(([g]) => g),
+  }))
+  if (q) list = list.filter((a) => a.name.toLowerCase().includes(q))
+
+  const sorters = {
+    count: (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    name: (a, b) => a.name.localeCompare(b.name),
+    rating: (a, b) => (b.rating ?? -1) - (a.rating ?? -1) || b.count - a.count,
+    recent: (a, b) => String(b.last_on || '').localeCompare(String(a.last_on || '')) || b.count - a.count,
+  }
+  list.sort(sorters[sort])
+
+  const page = list.slice(offset, offset + limit)
+  res.json({ artists: page, total: list.length, limit, offset })
+})
+
+
 router.get('/sections', (req, res) => {
   const counts = all(`
     SELECT w.type,
