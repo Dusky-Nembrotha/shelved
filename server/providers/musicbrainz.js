@@ -61,8 +61,16 @@ export async function searchAlbums(term, limit = 10) {
  * the plain listing, which is the honest answer rather than a slow page.
  */
 export async function artistTags(name, { cacheOnly = false } = {}) {
-  const term = String(name || '').trim()
-  if (term.length < 2) return null
+  const raw = String(name || '').trim()
+  if (raw.length < 2) return null
+  /*
+   * Lower-cased before it becomes a URL, because the URL is the cache key.
+   * The page asks for "green lung" and the warm-up asked for "GREEN LUNG" —
+   * the same question to MusicBrainz, which is case-insensitive, and two
+   * different rows in the cache, so the page never found what the warm-up
+   * had just fetched. Everything asks the same way now.
+   */
+  const term = raw.toLowerCase()
   const url = `${BASE}/artist?query=${encodeURIComponent(`artist:"${term}"`)}&fmt=json&limit=3`
 
   if (cacheOnly) {
@@ -85,7 +93,7 @@ export async function artistTags(name, { cacheOnly = false } = {}) {
  * recommending itself.
  */
 function tagsFrom(data, term) {
-  const want = term.toLowerCase()
+  const want = String(term).toLowerCase()
   const artist = (data?.artists || []).find((a) => {
     if (String(a.name || '').toLowerCase() === want) return true
     return (a.aliases || []).some((al) => String(al.name || '').toLowerCase() === want)
