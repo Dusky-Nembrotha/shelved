@@ -15,6 +15,15 @@ const DEFAULTS = {
   enrich_on_import: '1',
   owner_name: '',
   watch_region: 'GB',
+  /* Live music. The key is free from developer.ticketmaster.com; without one
+     the Gigs tab says so rather than sitting empty. */
+  ticketmaster_api_key: '',
+  /* Where "near me" is, for gigs. A town, and how far you will travel to it. */
+  gigs_city: 'Bristol',
+  gigs_radius_km: '40',
+  /* How far ahead to look. Beyond about six months the listings are mostly
+     stadium tours that were announced a year out. */
+  gigs_days: '120',
   /* TMDB provider ids you subscribe to, as JSON. Ids rather than names
      because names differ by region and by ad tier. */
   watch_services: '[]',
@@ -54,6 +63,8 @@ export function publicSettings() {
     google_books_api_key: s.google_books_api_key ? '••••••••' + s.google_books_api_key.slice(-4) : '',
     bgg_api_key: s.bgg_api_key ? '••••••••' + s.bgg_api_key.slice(-4) : '',
     anthropic_api_key: s.anthropic_api_key ? '••••••••' + s.anthropic_api_key.slice(-4) : '',
+    ticketmaster_api_key: s.ticketmaster_api_key ? '••••••••' + s.ticketmaster_api_key.slice(-4) : '',
+    has_ticketmaster: Boolean(s.ticketmaster_api_key),
     has_tmdb: Boolean(s.tmdb_api_key),
     has_omdb: Boolean(s.omdb_api_key),
     has_google_books: Boolean(s.google_books_api_key),

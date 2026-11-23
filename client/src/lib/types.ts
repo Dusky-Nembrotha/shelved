@@ -152,5 +152,7 @@ export interface SectionInfo {
   verb: string
   works: number
   entries: number
+  /** Entries you made, with bulk-imported taste data left out. */
+  live_entries: number
   avg_rating: number | null
 }

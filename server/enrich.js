@@ -1,7 +1,7 @@
 import { all, get, run } from './lib/db.js'
 import { enrich, resolveScreenType } from './providers/index.js'
 import { hydrate } from './lib/works.js'
-import { canonicalGenres, sortTitle } from './lib/util.js'
+import { canonicalGenres, sortTitle, normaliseTitle } from './lib/util.js'
 import { cacheArtwork } from './lib/artwork.js'
 
 /**
@@ -111,8 +111,10 @@ async function enrichWork(id) {
       const args = []
       if (retype) { sets.push('type = ?'); args.push(resolved.type); type = resolved.type }
       if (retitle) {
-        sets.push('title = ?', 'sort_title = ?')
-        args.push(resolved.title, sortTitle(resolved.title))
+        // norm_title goes with it: it is what duplicate detection reads, and
+        // a stale one means the next import creates a second copy instead.
+        sets.push('title = ?', 'sort_title = ?', 'norm_title = ?')
+        args.push(resolved.title, sortTitle(resolved.title), normaliseTitle(resolved.title))
         work.title = resolved.title
       }
       run(

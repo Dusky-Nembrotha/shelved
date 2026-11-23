@@ -149,6 +149,21 @@ export const METADATA = [
     ],
     settingKey: 'bgg_api_key',
   },
+  {
+    id: 'ticketmaster', brand: '#026cdf', label: 'Ticketmaster', mediaTypes: ['album', 'track'], kind: 'metadata-key',
+    website: 'https://developer.ticketmaster.com',
+    blurb: 'What is on near you, for the Gigs tab in your music library: every music event within '
+      + 'reach of your town, ranked by how many of the artists are already on your shelves. Free, '
+      + 'instant, and the only thing here that looks outwards rather than backwards. It does not '
+      + 'carry the small independent venues, so treat it as most of what is on, not all of it.',
+    instructions: [
+      'Create an account at developer.ticketmaster.com.',
+      'Go to My Apps → Add a new app; any name and description will do.',
+      'Copy the "Consumer Key" — not the secret — and paste it here.',
+      'Set your town and how far you will travel in Settings → Gigs.',
+    ],
+    settingKey: 'ticketmaster_api_key',
+  },
   { id: 'openlibrary', brand: '#b7410e', label: 'Open Library', mediaTypes: ['book'], kind: 'metadata-free', website: 'https://openlibrary.org', blurb: 'Covers, authors, subjects and ratings for books. No key needed; already in use.' },
   { id: 'itunes', brand: '#fa243c', label: 'Apple', mediaTypes: ['album', 'audiobook', 'podcast'], kind: 'metadata-free', website: 'https://music.apple.com', blurb: 'Artwork and metadata for music, audiobooks and podcasts. No key needed; already in use.' },
   { id: 'musicbrainz', brand: '#ba478f', label: 'MusicBrainz', mediaTypes: ['album'], kind: 'metadata-free', website: 'https://musicbrainz.org', blurb: 'Release data and genre tags, with cover art from the Cover Art Archive. No key needed.' },

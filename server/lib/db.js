@@ -77,6 +77,20 @@ if (addColumn('entries', 'format', 'TEXT')) {
 }
 
 /*
+ * An entry you made, versus one that merely describes your taste.
+ *
+ * A playlist of six thousand tracks is six thousand true facts about what you
+ * like and not one occasion: you did not sit down on 14 March 1995 and listen
+ * to that song, the date is only the record's. Such an entry teaches the
+ * engine everything and must stay out of the diary — the counts, the recently
+ * logged row, the activity feed and the charts — or one import buries a
+ * decade of logging under songs.
+ */
+if (addColumn('entries', 'backfill', 'INTEGER NOT NULL DEFAULT 0')) {
+  console.log('  migrated: added entries.backfill')
+}
+
+/*
  * A rejection used to record only that you had made one. Keeping what you
  * turned down — its genres, its people, its keywords — is what lets the engine
  * learn the shape of what you do not want, rather than merely crossing off one
@@ -108,8 +122,37 @@ if (addColumn('rec_blocks', 'attrs', 'TEXT')) {
   console.log(`  migrated: added rec_blocks.attrs${found ? ` (recovered ${found} of ${blocked.length})` : ''}`)
 }
 
+/*
+ * The normalised title, stored rather than recomputed.
+ *
+ * Finding "is this already in the library?" used to end in a scan of every
+ * work of that type, normalising each title in JavaScript to compare it —
+ * fine at a thousand films, quadratic at six thousand tracks, where one
+ * playlist import spent a quarter of an hour doing nothing else. Written on
+ * every insert and whenever a title changes; see upsertWork.
+ */
+if (addColumn('works', 'norm_title', 'TEXT')) {
+  const { normaliseTitle } = await import('./util.js')
+  const rows = db.prepare('SELECT id, title FROM works').all()
+  const set = db.prepare('UPDATE works SET norm_title = ? WHERE id = ?')
+  db.exec('BEGIN')
+  for (const r of rows) set.run(normaliseTitle(r.title), r.id)
+  db.exec('COMMIT')
+  console.log(`  migrated: added works.norm_title (${rows.length} filled in)`)
+}
+
 // Indexes that depend on migrated columns, so they come after the ALTERs.
 db.exec('CREATE INDEX IF NOT EXISTS entries_user_idx ON entries(user_id, consumed_on DESC)')
+db.exec('CREATE INDEX IF NOT EXISTS works_norm_idx ON works(type, norm_title)')
+/*
+ * The other identifiers findWork looks up before it ever considers a title.
+ * Only tmdb_id and imdb_id were indexed, so "have I got this already?" was a
+ * full scan of the type for every imported row that carried a Spotify id, an
+ * ISBN or an ASIN — the silent half of a slow import.
+ */
+for (const field of ['spotify_id', 'isbn', 'asin', 'mbid', 'itunes_id', 'olid']) {
+  db.exec(`CREATE INDEX IF NOT EXISTS works_${field}_idx ON works(type, ${field}) WHERE ${field} IS NOT NULL`)
+}
 
 /** Rows as plain objects (node:sqlite returns null-prototype objects). */
 export function all(sql, ...params) {

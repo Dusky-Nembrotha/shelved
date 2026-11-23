@@ -66,6 +66,8 @@ export function Preview({ target, onClose, onLogged }: {
     work_id: number | null
     preview: PreviewBody
     watch: { stream?: Provider[]; rent?: Provider[]; buy?: Provider[]; free?: Provider[]; link?: string } | null
+    /** Shops that sell the audiobook, in the region you have set. */
+    listen: { name: string; url: string; note: string | null; direct: boolean }[] | null
     region: string
     ratings: { source: string; display: string | null; url: string | null }[]
     similar: { type: MediaType; title: string; year: number | null; poster_url: string | null; work_id: number | null }[]
@@ -141,6 +143,13 @@ export function Preview({ target, onClose, onLogged }: {
    * only out in cinemas has none of them, which is worth saying plainly
    * rather than leaving a gap where the section would be.
    */
+  /*
+   * Named, and named something the browser has not already taken: the bare
+   * `screen` this used to test is window.screen, which is an object and so
+   * true for a board game as readily as for a film. It only ever looked
+   * right because the server sends no streaming for anything but film and TV.
+   */
+  const isScreen = target.type === 'film' || target.type === 'tv'
   const streamable = Boolean(
     data?.watch && (data.watch.stream?.length || data.watch.free?.length
       || data.watch.rent?.length || data.watch.buy?.length),
@@ -297,7 +306,7 @@ export function Preview({ target, onClose, onLogged }: {
               * something that was never going to appear, with no way to tell
               * a film nobody streams from one the app had failed to ask about.
               */}
-            {screen && data?.watch ? (
+            {isScreen && data?.watch ? (
               <div className="u-col" style={{ gap: 8 }}>
                 <span className="u-caps">Where to watch · {data.region}</span>
                 {!streamable && (
@@ -327,6 +336,37 @@ export function Preview({ target, onClose, onLogged }: {
                     {streamable ? 'Open on JustWatch' : 'Check JustWatch'} <Icon name="external" size={11} />
                   </a>
                 )}
+              </div>
+            ) : null}
+
+            {/*
+              * Where to get it, for the one medium with no streaming to
+              * check: an audiobook is bought, and a suggestion you cannot
+              * act on sends you off to type the title in somewhere by hand.
+              * Apple's own listing when the catalogue could name it, and a
+              * search already filled in at the rest.
+              */}
+            {data?.listen?.length ? (
+              <div className="u-col" style={{ gap: 8 }}>
+                <span className="u-caps">Where to listen · {data.region}</span>
+                <div className="chiprow">
+                  {data.listen.map((shop) => (
+                    <a
+                      key={shop.name}
+                      className="chip"
+                      href={shop.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={shop.direct
+                        ? `Open ${p?.title ?? target.title} on ${shop.name}`
+                        : `Search ${shop.name} for ${p?.title ?? target.title}`}
+                    >
+                      {shop.name}
+                      {shop.note ? <span className="u-mut"> {shop.note}</span> : null}
+                      <Icon name="external" size={11} />
+                    </a>
+                  ))}
+                </div>
               </div>
             ) : null}
 

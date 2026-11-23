@@ -11,7 +11,12 @@ import type { ActivityItem, Rec, WorkCard, MediaType } from '../lib/types'
 export function HomePage() {
   const { counts, sections, openLog, ready, bootError, refresh } = useApp()
 
-  const recent = useFetch<{ works: WorkCard[] }>('/works?sort=recent&status=logged&limit=18')
+  /*
+   * The diary, not the library: `exclude=backfill` drops entries that were
+   * imported in bulk to describe taste — a saved playlist, dated by the
+   * record's release — which would otherwise fill this row with songs.
+   */
+  const recent = useFetch<{ works: WorkCard[] }>('/works?sort=recent&status=logged&limit=18&exclude=backfill')
   const inProgress = useFetch<{ works: WorkCard[] }>('/works?status=in_progress&limit=12')
   const activity = useFetch<{ activity: ActivityItem[] }>('/activity?limit=8')
   const inbox = useFetch<{ recs: Rec[] }>('/recs?status=open')
@@ -63,14 +68,21 @@ export function HomePage() {
   }
 
   const live = sections.filter((s) => s.works > 0)
+  // Sections you have actually logged in, which is what the sentence counts.
+  const logged = sections.filter((s) => s.live_entries > 0)
 
   return (
     <div className="page">
       <header className="home-hero">
         <p className="home-hero__line u-dim">
-          {counts.entries.toLocaleString('en-GB')} entries across {live.length} section{live.length === 1 ? '' : 's'}
+          {counts.entries.toLocaleString('en-GB')} entries across {logged.length} section{logged.length === 1 ? '' : 's'}
           {activity.data?.activity?.[0]?.consumed_on
             ? ` · last ${relDate(activity.data.activity[0].consumed_on)}`
+            : ''}
+          {/* Said plainly rather than folded into the count: these are not
+              things you logged, they are things you told it you like. */}
+          {counts.backfilled > 0
+            ? ` · ${counts.backfilled.toLocaleString('en-GB')} tracks on file`
             : ''}
         </p>
         <div className="statstrip">

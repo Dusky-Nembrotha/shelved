@@ -33,11 +33,35 @@ export function findWork({ type: rawType, title, year, ...ids }) {
     sortTitle(title),
   )
   let pool = candidates
-  if (!pool.length) {
-    // Fall back to a normalised scan within the type (cheap: libraries are personal-sized).
-    pool = all('SELECT * FROM works WHERE type = ?', type).filter((w) => normaliseTitle(w.title) === norm)
+  /*
+   * A title of nothing but punctuation or a non-Latin script normalises to
+   * the empty string — "봄날", "∞", "(-_-)" all do. Matching on that would
+   * make every such title the same title, so the normalised fallback is
+   * skipped rather than allowed to merge them.
+   */
+  if (!pool.length && norm) {
+    /*
+     * Fall back to the normalised title — "Mr. Brightside" and "Mr Brightside"
+     * are one song. It reads the stored norm_title through its index rather
+     * than normalising every title in the type, which was a full scan per
+     * lookup: fine for a thousand films, a quarter of an hour for a
+     * six-thousand-track playlist. See the works.norm_title migration.
+     */
+    pool = all('SELECT * FROM works WHERE type = ? AND norm_title = ?', type, norm)
   }
   if (!pool.length) return undefined
+
+  /*
+   * Two bands with a song called "Intro" in the same year become one work
+   * here, credited to both, because matching ignores the artist. Filtering
+   * the pool by artist is the obvious fix and does not work: works_match_idx
+   * is UNIQUE on (type, lower(title), year), so refusing the match only
+   * turns a quiet merge into an insert that fails. Doing it properly means
+   * putting the artist into that index, which is a schema change for every
+   * media type and wants its own go. Eighteen of six thousand playlist
+   * tracks landed this way.
+   */
+
   if (year) {
     const exact = pool.find((w) => w.year === Number(year))
     if (exact) return hydrate(exact)
@@ -78,12 +102,12 @@ export function upsertWork(input) {
 
   if (!existing) {
     const stmt = run(
-      `INSERT INTO works (type, title, sort_title, original_title, year, release_date, creators, genres,
+      `INSERT INTO works (type, title, sort_title, norm_title, original_title, year, release_date, creators, genres,
          overview, runtime, pages, seasons, episodes, language, poster_url, backdrop_url,
          tmdb_id, imdb_id, isbn, olid, asin, spotify_id, mbid, itunes_id,
          external_rating, popularity, metadata, enriched_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      type, title, sortTitle(title), input.original_title || null, input.year ?? null, input.release_date || null,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      type, title, sortTitle(title), normaliseTitle(title), input.original_title || null, input.year ?? null, input.release_date || null,
       JSON.stringify(creators), JSON.stringify(genres), input.overview || null,
       input.runtime ?? null, input.pages ?? null, input.seasons ?? null, input.episodes ?? null,
       input.language || null, input.poster_url || null, input.backdrop_url || null,
@@ -105,6 +129,17 @@ export function upsertWork(input) {
   }
   if (input.enriched_at) patch.enriched_at = input.enriched_at
   if (input.title && input.title.length > title.length) patch.title = input.title
+
+  /*
+   * sort_title and norm_title are derived, and a derived column that is
+   * allowed to drift is worse than no column: norm_title is what duplicate
+   * detection reads, so a stale one silently splits a work in two. Recompute
+   * from whatever the title ends up being, and repair anything written by a
+   * path that did not know to.
+   */
+  const finalTitle = patch.title || existing.title
+  if (sortTitle(finalTitle) !== existing.sort_title) patch.sort_title = sortTitle(finalTitle)
+  if (normaliseTitle(finalTitle) !== existing.norm_title) patch.norm_title = normaliseTitle(finalTitle)
 
   const mergedCreators = mergeCreators(existing.creators, creators)
   if (mergedCreators.length !== existing.creators.length) patch.creators = JSON.stringify(mergedCreators)
@@ -165,6 +200,14 @@ export const WORK_CARD_SQL = `
          (SELECT max(e.rating) FROM entries e WHERE e.work_id = w.id) AS rating,
          (SELECT max(e.liked) FROM entries e WHERE e.work_id = w.id) AS liked,
          (SELECT max(e.consumed_on) FROM entries e WHERE e.work_id = w.id) AS last_on,
+         /*
+          * The same two figures over the diary alone, so that a view about
+          * what you have been up to can ask for what you have been up to.
+          * See entries.backfill.
+          */
+         (SELECT count(*) FROM entries e WHERE e.work_id = w.id AND e.backfill = 0) AS live_count,
+         (SELECT max(e.consumed_on) FROM entries e
+            WHERE e.work_id = w.id AND e.backfill = 0) AS live_on,
          (SELECT e.status FROM entries e WHERE e.work_id = w.id
             ORDER BY ifnull(e.consumed_on, e.created_at) DESC LIMIT 1) AS status
   FROM works w`

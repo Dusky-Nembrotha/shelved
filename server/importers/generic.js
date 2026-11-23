@@ -26,6 +26,8 @@ export const FIELD_ALIASES = {
   tmdb_id: ['tmdb id', 'tmdb'],
   runtime: ['runtime', 'length', 'duration', 'minutes'],
   pages: ['pages', 'number of pages', 'page count'],
+  /* Our own export's column, so a restore puts taste back as taste. */
+  backfill: ['backfill'],
 }
 
 export function guessMapping(headers) {
@@ -124,6 +126,8 @@ export function parse(files, opts = {}) {
         kind: 'entry',
         status,
         rating: parseRating(pick(row, col('rating'), idx), scale),
+        // Only our own export has this; anything else is a diary entry.
+        backfill: /^(1|true|yes)$/i.test(pick(row, col('backfill'), idx)),
         consumed_on: parseDate(pick(row, col('consumed_on'), idx)),
         review: pick(row, col('review'), idx) || null,
         notes: pick(row, col('notes'), idx) || null,

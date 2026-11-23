@@ -93,10 +93,16 @@ export function SettingsPage() {
   const { toast, refresh, settings, theme, setTheme, counts } = useApp()
   const [owner, setOwner] = useState('')
   const [saving, setSaving] = useState(false)
+  const [gigsCity, setGigsCity] = useState('Bristol')
+  const [gigsRadius, setGigsRadius] = useState('40')
+  const [gigsDays, setGigsDays] = useState('120')
   const [resetText, setResetText] = useState('')
   const enrich = useFetch<any>('/enrich/status')
 
   useEffect(() => { setOwner(settings.owner_name || '') }, [settings.owner_name])
+  useEffect(() => { setGigsCity(settings.gigs_city || 'Bristol') }, [settings.gigs_city])
+  useEffect(() => { setGigsRadius(String(settings.gigs_radius_km || 40)) }, [settings.gigs_radius_km])
+  useEffect(() => { setGigsDays(String(settings.gigs_days || 120)) }, [settings.gigs_days])
 
   async function save(patch: Record<string, unknown>, message = 'Saved') {
     setSaving(true)
@@ -204,6 +210,50 @@ export function SettingsPage() {
               <input id="owner" className="input" value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="Charlie" />
               <button className="btn" disabled={saving} onClick={() => save({ owner_name: owner.trim() })}>Save</button>
             </div>
+          </div>
+        </section>
+
+        <section className="card card--pad-lg">
+          <h2 style={{ marginBottom: 4 }}>Gigs</h2>
+          <p className="u-sm u-mut" style={{ marginBottom: 14 }}>
+            Where the Gigs tab in your music library looks, and how far ahead. It needs a free
+            Ticketmaster key — {settings.has_ticketmaster
+              ? 'which you have added.'
+              : <Link to="/connections">add one in Connections</Link>}
+          </p>
+          <div className="u-row u-wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
+            <div className="field">
+              <label htmlFor="gigs-city">Town</label>
+              <input
+                id="gigs-city" className="input" style={{ maxWidth: 170 }}
+                value={gigsCity} onChange={(e) => setGigsCity(e.target.value)} placeholder="Bristol"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="gigs-radius">Within (km)</label>
+              <input
+                id="gigs-radius" className="input" style={{ maxWidth: 110 }} type="number" min={1} max={300}
+                value={gigsRadius} onChange={(e) => setGigsRadius(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="gigs-days">Looking ahead (days)</label>
+              <input
+                id="gigs-days" className="input" style={{ maxWidth: 130 }} type="number" min={7} max={365}
+                value={gigsDays} onChange={(e) => setGigsDays(e.target.value)}
+              />
+            </div>
+            <button
+              className="btn"
+              disabled={saving}
+              onClick={() => save({
+                gigs_city: gigsCity.trim() || 'Bristol',
+                gigs_radius_km: String(Math.min(300, Math.max(1, Number(gigsRadius) || 40))),
+                gigs_days: String(Math.min(365, Math.max(7, Number(gigsDays) || 120))),
+              }, 'Gigs settings saved')}
+            >
+              Save
+            </button>
           </div>
         </section>
 

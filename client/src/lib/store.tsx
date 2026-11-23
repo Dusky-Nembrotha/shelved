@@ -21,7 +21,7 @@ export interface EnrichState {
 interface Ctx {
   enrich: EnrichState | null
   sections: SectionInfo[]
-  counts: { works: number; entries: number; recsOpen: number; lists: number }
+  counts: { works: number; entries: number; backfilled: number; recsOpen: number; lists: number }
   /*
    * Whether the first load has come back yet, either way.
    *
@@ -52,7 +52,7 @@ const AppCtx = createContext<Ctx | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [sections, setSections] = useState<SectionInfo[]>([])
-  const [counts, setCounts] = useState({ works: 0, entries: 0, recsOpen: 0, lists: 0 })
+  const [counts, setCounts] = useState({ works: 0, entries: 0, backfilled: 0, recsOpen: 0, lists: 0 })
   const [ready, setReady] = useState(false)
   const [bootError, setBootError] = useState<string | null>(null)
   const [settings, setSettings] = useState<Record<string, any>>({})

@@ -9,10 +9,11 @@ import * as spotify from './spotify.js'
 import * as lastfm from './lastfm.js'
 import * as netflix from './netflix.js'
 import * as justwatch from './justwatch.js'
+import * as playlist from './playlist.js'
 import * as generic from './generic.js'
 import { parseCsvObjects } from '../lib/csv.js'
 
-export const IMPORTERS = [letterboxd, goodreads, storygraph, audible, imdb, trakt, spotify, lastfm, netflix, justwatch, generic]
+export const IMPORTERS = [letterboxd, goodreads, storygraph, audible, imdb, trakt, spotify, playlist, lastfm, netflix, justwatch, generic]
 const BY_ID = new Map(IMPORTERS.map((i) => [i.id, i]))
 
 export function getImporter(id) {

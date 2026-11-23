@@ -20,6 +20,8 @@ export function record(partial) {
     consumed_on: null,
     is_repeat: false,
     status: 'completed',
+    /* Imported to describe taste, not to record an occasion. */
+    backfill: false,
     review: null,
     notes: null,
     tags: [],

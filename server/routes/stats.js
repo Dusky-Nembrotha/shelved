@@ -7,7 +7,14 @@ export const router = Router()
 /** Everything the Stats page draws. */
 router.get('/stats', (req, res) => {
   const type = req.query.type && req.query.type !== 'all' ? req.query.type : null
-  const typeClause = type ? 'AND w.type = ?' : ''
+  /*
+   * Every figure here is about the log you kept, so backfilled entries — a
+   * playlist imported wholesale to describe your taste, carrying the record's
+   * release date rather than a day you listened — are left out of all of it.
+   * They would otherwise draw a listening history you never had. See
+   * entries.backfill.
+   */
+  const typeClause = `${type ? 'AND w.type = ?' : ''} AND e.backfill = 0`
   const p = type ? [type] : []
 
   const totals = get(
@@ -45,7 +52,8 @@ router.get('/stats', (req, res) => {
 
   const byType = all(
     `SELECT w.type, count(e.id) entries, count(DISTINCT w.id) works, round(avg(e.rating), 2) avg_rating
-       FROM entries e JOIN works w ON w.id = e.work_id GROUP BY w.type ORDER BY entries DESC`,
+       FROM entries e JOIN works w ON w.id = e.work_id
+      WHERE e.backfill = 0 GROUP BY w.type ORDER BY entries DESC`,
   ).map((r) => ({ ...r, label: SECTIONS[r.type]?.label || r.type }))
 
   const releaseYears = all(
@@ -128,6 +136,6 @@ router.get('/stats', (req, res) => {
     creators,
     heatmap,
     heatmapEnd,
-    sources: all('SELECT source, count(*) c FROM entries GROUP BY source ORDER BY c DESC'),
+    sources: all('SELECT source, count(*) c FROM entries WHERE backfill = 0 GROUP BY source ORDER BY c DESC'),
   })
 })

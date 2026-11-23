@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { all, get, run, json } from '../lib/db.js'
 import { WORK_CARD_SQL, workWithStats, upsertWork, hydrate } from '../lib/works.js'
-import { TYPES, SECTIONS, normaliseTitle, today, clamp } from '../lib/util.js'
-import { searchProviders, searchAllTypes, bookNoise, enrich, screenRatings, tmdb, ol, itunes, mb, wiki, wikidata, omdb, gbooks, imdbdata, steam, boardgame } from '../providers/index.js'
+import { TYPES, SECTIONS, normaliseTitle, sortTitle, today, clamp } from '../lib/util.js'
+import { searchProviders, searchAllTypes, bookNoise, enrich, screenRatings, chooseBest, tmdb, ol, itunes, mb, wiki, wikidata, omdb, gbooks, imdbdata, steam, boardgame } from '../providers/index.js'
 import { foldGenres, genreFacets, matchesGenre } from '../lib/genres.js'
 import * as bgg from '../providers/bgg.js'
 import { cacheArtwork, cachedPathFor } from '../lib/artwork.js'
@@ -12,6 +12,7 @@ import { qualityOf } from '../lib/imagesize.js'
 import { queueEnrichment, prioritise } from '../enrich.js'
 import { setting, saveSettings } from '../lib/settings.js'
 import { myServiceIds, haveServices, canFilterByService, filterToServices } from '../lib/streaming.js'
+import { audiobookStores } from '../lib/stores.js'
 import { currentUserId } from '../lib/user.js'
 
 export const router = Router()
@@ -22,6 +23,9 @@ export const router = Router()
  * bottom either way, because "no rating" is not the lowest rating.
  */
 const SORTS = {
+  // The same as `recent`, over the diary alone: see entries.backfill and the
+  // `exclude=backfill` parameter below.
+  recentLive: 'live_on IS NULL, live_on DESC, year IS NULL, year DESC, sort_title ASC',
   // Ties are common after an import, where everything shares one date:
   // fall back to release date so the order means something.
   recent: 'last_on IS NULL, last_on DESC, year IS NULL, year DESC, sort_title ASC',
@@ -33,6 +37,7 @@ const SORTS = {
 }
 
 const SORTS_ASC = {
+  recentLive: 'live_on IS NULL, live_on ASC, year IS NULL, year ASC, sort_title ASC',
   recent: 'last_on IS NULL, last_on ASC, year IS NULL, year ASC, sort_title ASC',
   added: 'created_at ASC',
   rating: 'rating IS NULL, rating ASC, last_on DESC',
@@ -188,15 +193,25 @@ router.get('/works', (req, res) => {
   const outerParams = []
   if (minRating) { outer.push('rating >= ?'); outerParams.push(Number(minRating)) }
   if (unrated) outer.push('rating IS NULL')
-  if (status === 'logged') outer.push('entry_count > 0')
+  /*
+   * "What have I actually been doing" rather than "what is in the library".
+   * A bulk-imported playlist is in the library and was never an occasion, so
+   * the home page asks for this and the shelves do not.
+   */
+  const liveOnly = req.query.exclude === 'backfill'
+  if (liveOnly) outer.push('live_count > 0')
+  if (status === 'logged') outer.push(liveOnly ? 'live_count > 0' : 'entry_count > 0')
   else if (status === 'unlogged') outer.push('entry_count = 0')
   else if (status) { outer.push('status = ?'); outerParams.push(String(status)) }
 
   const inner = `${WORK_CARD_SQL} ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`
   const filtered = `SELECT * FROM (${inner}) ${outer.length ? 'WHERE ' + outer.join(' AND ') : ''}`
 
+  // Ordering by "most recent" means the most recent thing you did, so with
+  // the backfill excluded it reads the diary-only date.
+  const sortKey = liveOnly && sort === 'recent' ? 'recentLive' : sort
   const rows = all(
-    `${filtered} ORDER BY ${(req.query.dir === 'asc' ? SORTS_ASC : SORTS)[sort] || SORTS.recent} LIMIT ? OFFSET ?`,
+    `${filtered} ORDER BY ${(req.query.dir === 'asc' ? SORTS_ASC : SORTS)[sortKey] || SORTS.recent} LIMIT ? OFFSET ?`,
     ...params, ...outerParams, limit, offset,
   )
   const total = get(`SELECT count(*) c FROM (${filtered})`, ...params, ...outerParams).c
@@ -312,6 +327,16 @@ router.patch('/works/:id', (req, res) => {
   for (const k of allowed) if (k in req.body) patch[k] = req.body[k]
   if ('genres' in req.body) patch.genres = JSON.stringify(req.body.genres || [])
   if ('creators' in req.body) patch.creators = JSON.stringify(req.body.creators || [])
+  /*
+   * Retitling here has to carry the derived columns with it. norm_title is
+   * what "have I got this already?" reads, so leaving it behind means the
+   * next import of the same title creates a second copy of the work and
+   * splits its history, with nothing anywhere to say so.
+   */
+  if (patch.title) {
+    patch.sort_title = sortTitle(patch.title)
+    patch.norm_title = normaliseTitle(patch.title)
+  }
   const keys = Object.keys(patch)
   if (!keys.length) return res.status(400).json({ error: 'Nothing to update' })
   run(
@@ -1196,6 +1221,37 @@ router.get('/hot', async (req, res) => {
 })
 
 /**
+ * Apple's own page for an audiobook, so the sheet can link straight at the
+ * listing rather than at a search for it — and quote the price while it is
+ * there. The lookup is free, keyless and cached for a fortnight.
+ *
+ * It returns nothing rather than a guess: a confident link to the wrong
+ * recording is worse than the search box, which at least shows you what it
+ * found. Everything audiobook-shaped on Apple carries "(Unabridged)" in its
+ * title, which chooseBest treats as a prefix match rather than a miss.
+ */
+async function appleAudiobook(item) {
+  if (item?.metadata?.itunes_url) {
+    return {
+      url: item.metadata.itunes_url,
+      price: item.metadata.price ?? null,
+      currency: item.metadata.currency ?? null,
+    }
+  }
+  const author = (item?.creators || []).find((c) => c.role === 'Author' || !c.role)?.name
+  const term = [item?.title, author].filter(Boolean).join(' ')
+  if (!term) return null
+  const best = chooseBest(await itunes.search('audiobook', term, 8), {
+    title: item.title,
+    year: item.year ?? null,
+    creators: item.creators || [],
+  })
+  const url = best?.metadata?.itunes_url
+  return url ? { url, price: best.metadata.price ?? null, currency: best.metadata.currency ?? null } : null
+}
+
+
+/**
  * Look something up without adding it.
  *
  * Everything shown that is *not* in your library — the rest of a series, a
@@ -1214,7 +1270,12 @@ router.get('/preview', async (req, res) => {
     type,
     title,
     year,
-    creators: creator ? [{ role: type === 'book' ? 'Author' : 'Director', name: creator }] : [],
+    // An audiobook's creator is its author, not its director. Tagged wrongly,
+    // appleAudiobook's search for "Author" found nobody and asked Apple for
+    // the bare title — the confident wrong link its own docstring warns of.
+    creators: creator
+      ? [{ role: (type === 'book' || type === 'audiobook') ? 'Author' : 'Director', name: creator }]
+      : [],
   }
 
   let found = null
@@ -1238,7 +1299,7 @@ router.get('/preview', async (req, res) => {
   const tmdbId = found?.tmdb_id ?? null
   const screen = type === 'film' || type === 'tv'
 
-  const [watch, ratings, similar, trailer] = await Promise.all([
+  const [watch, ratings, similar, trailer, apple] = await Promise.all([
     screen && tmdbId
       ? tmdb.watchProviders(type, tmdbId, String(setting('watch_region') || 'GB').toUpperCase()).catch(() => null)
       : null,
@@ -1250,6 +1311,7 @@ router.get('/preview', async (req, res) => {
       ? tmdb.recommendations(type, tmdbId, 10).catch(() => [])
       : [],
     screen && tmdbId ? tmdb.trailer(type, tmdbId).catch(() => null) : null,
+    type === 'audiobook' ? appleAudiobook(found || seed).catch(() => null) : null,
   ])
 
   const owned = ownedIndex()
@@ -1258,6 +1320,19 @@ router.get('/preview', async (req, res) => {
     found: Boolean(found),
     work_id: mine?.id ?? null,
     watch: watch || null,
+    /*
+     * The shops, for the one medium you cannot stream from a library card and
+     * nobody owns by accident. A suggestion with nowhere to act on it sends
+     * you off to type the title into Audible by hand.
+     */
+    listen: type === 'audiobook'
+      ? audiobookStores({
+        title: found?.title || title,
+        author: (found?.creators || seed.creators).find((c) => c.role === 'Author' || !c.role)?.name ?? creator ?? null,
+        region: String(setting('watch_region') || 'GB').toUpperCase(),
+        apple,
+      })
+      : null,
     region: String(setting('watch_region') || 'GB').toUpperCase(),
     ratings: ratings?.ratings || [],
     trailer,
@@ -1624,6 +1699,8 @@ router.get('/activity', (req, res) => {
     `SELECT e.*, w.title, w.type, w.year, w.poster_url, w.creators
        FROM entries e JOIN works w ON w.id = e.work_id
       WHERE (? IS NULL OR w.type = ?)
+        -- Backfilled entries describe taste, not days; they are not activity.
+        AND e.backfill = 0
       ORDER BY ifnull(e.consumed_on, date(e.created_at)) DESC,
                w.year IS NULL, w.year DESC, w.sort_title ASC
       LIMIT ? OFFSET ?`,
@@ -1649,7 +1726,8 @@ router.get('/activity', (req, res) => {
       source: r.source,
       tags: json(r.tags, []),
     })),
-    total: get('SELECT count(*) c FROM entries').c,
+    // The diary's length, counted the same way the diary is listed.
+    total: get('SELECT count(*) c FROM entries WHERE backfill = 0').c,
   })
 })
 
@@ -1761,6 +1839,8 @@ router.get('/sections', (req, res) => {
     SELECT w.type,
            count(DISTINCT w.id) works,
            count(e.id) entries,
+           -- Entries you made, as opposed to ones a bulk import inferred.
+           sum(CASE WHEN e.id IS NOT NULL AND e.backfill = 0 THEN 1 ELSE 0 END) live_entries,
            round(avg(e.rating), 2) avg_rating
       FROM works w LEFT JOIN entries e ON e.work_id = w.id
      GROUP BY w.type`)
@@ -1775,15 +1855,17 @@ router.get('/sections', (req, res) => {
     byType[shelf] = get(`
       SELECT count(DISTINCT w.id) works,
              count(e.id) entries,
+             sum(CASE WHEN e.id IS NOT NULL AND e.backfill = 0 THEN 1 ELSE 0 END) live_entries,
              round(avg(e.rating), 2) avg_rating
         FROM works w LEFT JOIN entries e ON e.work_id = w.id
-       WHERE ${SHELF[shelf]}`) || { works: 0, entries: 0, avg_rating: null }
+       WHERE ${SHELF[shelf]}`) || { works: 0, entries: 0, live_entries: 0, avg_rating: null }
   }
   res.json(TYPES.map((type) => ({
     type,
     ...SECTIONS[type],
     works: byType[type]?.works || 0,
     entries: byType[type]?.entries || 0,
+    live_entries: byType[type]?.live_entries || 0,
     avg_rating: byType[type]?.avg_rating ?? null,
   })))
 })

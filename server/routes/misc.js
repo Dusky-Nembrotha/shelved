@@ -105,13 +105,17 @@ router.get('/export', (req, res) => {
   const rows = all(`
     SELECT w.type, w.title, w.year, w.creators, w.genres, w.runtime, w.pages,
            w.imdb_id, w.tmdb_id, w.isbn, w.asin,
-           e.rating, e.liked, e.consumed_on, e.is_repeat, e.status, e.progress, e.review, e.notes, e.tags, e.source
+           e.rating, e.liked, e.consumed_on, e.is_repeat, e.status, e.progress, e.review, e.notes, e.tags, e.source,
+           -- Carried so that restoring your own export does not turn six
+           -- thousand playlist tracks into six thousand diary entries.
+           e.backfill
       FROM entries e JOIN works w ON w.id = e.work_id
      ORDER BY e.consumed_on DESC`)
 
   if (format === 'csv') {
     const headers = ['type', 'title', 'year', 'creators', 'genres', 'rating', 'consumed_on', 'is_repeat',
-      'status', 'progress', 'review', 'notes', 'tags', 'runtime', 'pages', 'imdb_id', 'tmdb_id', 'isbn', 'source']
+      'status', 'progress', 'review', 'notes', 'tags', 'runtime', 'pages', 'imdb_id', 'tmdb_id', 'isbn', 'source',
+      'backfill']
     const flat = rows.map((r) => ({
       ...r,
       creators: json(r.creators, []).map((c) => c.name).join('; '),
@@ -154,7 +158,10 @@ router.get('/bootstrap', (req, res) => {
     dataDir: DATA_DIR,
     counts: {
       works: get('SELECT count(*) c FROM works').c,
-      entries: get('SELECT count(*) c FROM entries').c,
+      // The headline is the diary: a bulk-imported playlist is taste, not
+      // entries you made. See entries.backfill.
+      entries: get('SELECT count(*) c FROM entries WHERE backfill = 0').c,
+      backfilled: get('SELECT count(*) c FROM entries WHERE backfill = 1').c,
       recsOpen: get("SELECT count(*) c FROM recs WHERE status = 'open'").c,
       lists: get('SELECT count(*) c FROM lists').c,
     },

@@ -77,7 +77,12 @@ export function applyRecords(records, { source, filename, dryRun = false, enrich
           metadata: r.metadata,
         })
         if (created) summary.worksAdded++
-        if (!work.poster_url || !work.enriched_at) needEnrichment.push(work.id)
+        /*
+         * Bulk taste imports are not queued for artwork. Six thousand tracks
+         * is six thousand provider lookups for covers nobody asked for, which
+         * would hold up the enrichment of things you actually logged for days.
+         */
+        if (!r.backfill && (!work.poster_url || !work.enriched_at)) needEnrichment.push(work.id)
 
         if (r.kind === 'list') {
           applyList(r, work, summary)
@@ -164,8 +169,8 @@ function applyEntry(r, work, source, summary) {
 
   run(
     `INSERT INTO entries (user_id, work_id, status, rating, liked, consumed_on, is_repeat, season, episode,
-       progress, review, notes, tags, format, source, external_key)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       progress, review, notes, tags, format, source, external_key, backfill)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     systemUserId(), work.id, r.status || 'completed', r.rating ?? null, r.liked ? 1 : 0, r.consumed_on || null,
     r.is_repeat ? 1 : 0, r.season ?? null, r.episode ?? null, r.progress || null,
     r.review || null, r.notes || null, JSON.stringify(r.tags || []),
@@ -173,6 +178,9 @@ function applyEntry(r, work, source, summary) {
     // what kind of thing it is.
     r.type === 'audiobook' ? 'audiobook' : (work.type === 'book' ? 'book' : null),
     source, r.external_key || null,
+    // Taste rather than diary — an importer sets this when the date is the
+    // record's rather than a day you were there. See entries.backfill.
+    r.backfill ? 1 : 0,
   )
   summary.entriesAdded++
   if (summary.samples.length < 24) {

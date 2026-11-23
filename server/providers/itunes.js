@@ -59,6 +59,8 @@ function normalise(item, type) {
       artist_id: item.artistId,
       collection_id: item.collectionId,
       price: item.trackPrice ?? item.collectionPrice,
+      // Needed to show a price as money rather than a bare number.
+      currency: item.currency || null,
     },
   }
 }

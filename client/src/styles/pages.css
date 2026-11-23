@@ -789,13 +789,22 @@ code {
   border-radius: var(--r-md);
   background: var(--surface-1);
   border: 1px solid var(--hairline);
+  /* Music has five tabs and a narrow phone has room for four: slide the
+     strip rather than stack it, and keep the scrollbar out of the way. */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.sectiontabs::-webkit-scrollbar { display: none; }
 .sectiontabs button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   height: 32px;
   padding: 0 14px;
+  /* Five tabs on a phone used to wrap "To listen to" over three lines and
+     make the strip twice as tall as the content it switches. */
+  white-space: nowrap;
   border-radius: var(--r-sm);
   font-size: 13.5px;
   font-weight: 560;
@@ -1439,4 +1448,79 @@ a.pubrating:hover { border-color: var(--accent-line); background: rgba(10, 9, 12
   font-size: 11px;
   font-weight: 600;
   color: var(--good);
+}
+
+/*
+ * A gig, which is a row rather than a card: the date and the venue are the
+ * whole of the decision, and sixty posters of bands you have never seen tell
+ * you nothing. Art is small and on the left, where it reads as a thumbnail
+ * and not as the point.
+ */
+.gig {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.gig:hover {
+  border-color: var(--hairline-strong);
+  background: var(--surface-2);
+}
+
+.gig__art {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+.gig__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gig__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.gig__title {
+  font-weight: 650;
+  font-size: 14px;
+}
+
+.gig__when {
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+.gig__date {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* On a phone the right-hand column would squeeze the venue to nothing. */
+@media (max-width: 520px) {
+  .gig { align-items: flex-start; }
+  .gig__when { padding-top: 2px; }
 }

@@ -8,6 +8,7 @@ import { Stars } from '../components/Stars'
 import { Empty, Modal } from '../components/Modal'
 import { Suggestions } from '../components/Suggestions'
 import { Hot } from '../components/Hot'
+import { Gigs } from '../components/Gigs'
 import { useApp, useFetch } from '../lib/store'
 import { qs } from '../lib/api'
 import { SECTION_META, creatorLine, fmtDate, fmtRuntime, relDate } from '../lib/format'
@@ -43,7 +44,7 @@ interface Filters {
   unrated: boolean
 }
 
-type Tab = 'done' | 'planned' | 'suggested' | 'hot'
+type Tab = 'done' | 'planned' | 'suggested' | 'hot' | 'gigs'
 
 function dirLabel(sort: string, dir: 'desc' | 'asc') {
   if (sort === 'title') return dir === 'desc' ? 'A to Z' : 'Z to A'
@@ -69,7 +70,12 @@ export function SectionPage({ type }: { type: MediaType }) {
    * each kept its own. In the URL both are shared by every tab and restored
    * by the back button, which is what a back button is for.
    */
-  const tab = (['done', 'planned', 'suggested', 'hot'].includes(params.get('tab') || '')
+  /* Live music exists for music. Asking the film shelf for gigs is a question
+     with no answer, so the tab is not offered there and the URL is not
+     honoured either — a stale ?tab=gigs lands you back on the shelf. */
+  const hasGigs = type === 'album' || type === 'track'
+  const tabs = ['done', 'planned', 'suggested', 'hot', ...(hasGigs ? ['gigs'] : [])]
+  const tab = (tabs.includes(params.get('tab') || '')
     ? params.get('tab')
     : 'done') as Tab
 
@@ -183,9 +189,11 @@ export function SectionPage({ type }: { type: MediaType }) {
       <div className="page">
         <SectionTabs type={type} tab={tab} setTab={setTab} />
         {tab === 'planned' ? <PlannedList type={type} />
-          : tab === 'hot'
-            ? <Hot type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />
-            : <Suggestions type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />}
+          : tab === 'gigs'
+            ? <Gigs />
+            : tab === 'hot'
+              ? <Hot type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />
+              : <Suggestions type={type} genre={urlGenre} onGenre={(g) => patchParams({ genre: g })} />}
       </div>
     )
   }
@@ -561,6 +569,11 @@ function SectionTabs({ type, tab, setTab }: {
       <button className={tab === 'hot' ? 'is-on' : ''} onClick={() => setTab('hot')}>
         Hot
       </button>
+      {(type === 'album' || type === 'track') && (
+        <button className={tab === 'gigs' ? 'is-on' : ''} onClick={() => setTab('gigs')}>
+          Gigs
+        </button>
+      )}
     </div>
   )
 }

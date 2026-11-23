@@ -10,6 +10,7 @@ import { router as stats } from './routes/stats.js'
 import { router as imports } from './routes/imports.js'
 import { router as misc } from './routes/misc.js'
 import { router as connections } from './routes/connections.js'
+import { router as gigs } from './routes/gigs.js'
 import { router as auth } from './routes/auth.js'
 import { requireAuth, applyEnvPassword } from './lib/auth.js'
 import { queueAll, queueAllRecArtwork } from './enrich.js'
@@ -43,6 +44,7 @@ app.use(`${BASE}/api`, stats)
 app.use(`${BASE}/api`, imports)
 app.use(`${BASE}/api`, misc)
 app.use(`${BASE}/api`, connections)
+app.use(`${BASE}/api`, gigs)
 
 app.use(`${BASE}/api`, (req, res) => res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` }))
 app.use((err, req, res, next) => {
