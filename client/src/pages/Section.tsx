@@ -554,8 +554,20 @@ function SectionTabs({ type, tab, setTab }: {
   const { data } = useFetch<{ recs: Rec[] }>(`/recs?status=open&type=${type}`, [type])
   const waiting = data?.recs?.length ?? 0
 
+  /*
+   * With five tabs the strip is wider than a phone and scrolls sideways, so
+   * the tab you are actually on has to be brought into view — otherwise
+   * arriving on Gigs showed you four tabs you were not on and a sliver of
+   * the one you were.
+   */
+  const strip = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const on = strip.current?.querySelector('button.is-on')
+    on?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab])
+
   return (
-    <div className="sectiontabs">
+    <div className="sectiontabs" ref={strip}>
       <button className={tab === 'done' ? 'is-on' : ''} onClick={() => setTab('done')}>
         {meta.done}
       </button>

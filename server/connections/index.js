@@ -152,15 +152,17 @@ export const METADATA = [
   {
     id: 'ticketmaster', brand: '#026cdf', label: 'Ticketmaster', mediaTypes: ['album', 'track'], kind: 'metadata-key',
     website: 'https://developer.ticketmaster.com',
-    blurb: 'What is on near you, for the Gigs tab in your music library: every music event within '
-      + 'reach of your town, ranked by how many of the artists are already on your shelves. Free, '
-      + 'instant, and the only thing here that looks outwards rather than backwards. It does not '
-      + 'carry the small independent venues, so treat it as most of what is on, not all of it.',
+    blurb: 'Optional, and only half of the Gigs tab. In Bristol that tab already works without it, '
+      + 'from Headfirst\'s listings, which cover the independent venues Ticketmaster has never heard '
+      + 'of. What a key adds is the rooms with a box office — the Academy, the Beacon, the arenas — '
+      + 'and the genre of each act, which is the only way to guess at a band you do not already know. '
+      + 'Free and approved instantly.',
     instructions: [
       'Create an account at developer.ticketmaster.com.',
       'Go to My Apps → Add a new app; any name and description will do.',
       'Copy the "Consumer Key" — not the secret — and paste it here.',
       'Set your town and how far you will travel in Settings → Gigs.',
+      'Outside Bristol it becomes the only source, since the Bristol listings are Bristol\'s.',
     ],
     settingKey: 'ticketmaster_api_key',
   },

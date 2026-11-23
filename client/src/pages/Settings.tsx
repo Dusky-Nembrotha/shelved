@@ -216,10 +216,11 @@ export function SettingsPage() {
         <section className="card card--pad-lg">
           <h2 style={{ marginBottom: 4 }}>Gigs</h2>
           <p className="u-sm u-mut" style={{ marginBottom: 14 }}>
-            Where the Gigs tab in your music library looks, and how far ahead. It needs a free
-            Ticketmaster key — {settings.has_ticketmaster
-              ? 'which you have added.'
-              : <Link to="/connections">add one in Connections</Link>}
+            Where the Gigs tab in your music library looks, and how far ahead. In Bristol it reads
+            Headfirst's listings and needs nothing at all. {settings.has_ticketmaster
+              ? 'Your Ticketmaster key adds the box-office venues on top.'
+              : <>A free <Link to="/connections">Ticketmaster key</Link> adds the box-office venues and
+                lets it guess at bands you have not heard of.</>}
           </p>
           <div className="u-row u-wrap" style={{ gap: 10, alignItems: 'flex-end' }}>
             <div className="field">

@@ -3,6 +3,7 @@ import { all, json } from '../lib/db.js'
 import { setting } from '../lib/settings.js'
 import { normaliseTitle } from '../lib/util.js'
 import * as ticketmaster from '../providers/ticketmaster.js'
+import * as headfirst from '../providers/headfirst.js'
 
 export const router = Router()
 
@@ -25,6 +26,40 @@ function key(name) {
 }
 
 /**
+ * The same, but keeping the leading article, for matching act names.
+ *
+ * normaliseTitle drops a leading "the" because "A Thousand Splendid Suns"
+ * and "Thousand Splendid Suns" are one book. Band names are not books: with
+ * the article gone, a night called HEAVY matched The Heavy, and "Mario Kart
+ * With A Band" split to "a band" and matched The Band. Precision matters
+ * more than reach here — a wrong gig in "artists you listen to" is worse
+ * than a missing one, because the whole point of that list is that it is
+ * not a guess.
+ */
+function actKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+/*
+ * A bill is rarely one act: "CWFEN / BIRDWITCH / URZAH", "Mildred + Myer U
+ * Clark", "Opeth with special guests". Every part is tried, and the whole
+ * string too, because plenty of band names contain an "and".
+ */
+const BILL_SPLIT = /\s*(?:\/|\+|,|•|\u2022|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:)\s*/i
+
+function actsIn(billing) {
+  const whole = String(billing || '').trim()
+  const parts = [whole, ...whole.split(BILL_SPLIT)]
+  return [...new Set(parts.map(actKey).filter((p) => p.length > 2))]
+}
+
+/**
  * Who you listen to, and how much.
  *
  * Weighted by how many of their tracks you kept rather than by entries alone,
@@ -40,6 +75,7 @@ function myArtists() {
      GROUP BY w.id`)
 
   const artists = new Map()
+  const byAct = new Map()
   const genres = new Map()
   for (const row of rows) {
     // Four stars doubles it; a like on its own is worth half of that again.
@@ -55,6 +91,12 @@ function myArtists() {
       slot.score += weight
       if (row.rating) slot.rating = Math.max(slot.rating ?? 0, row.rating)
       artists.set(k, slot)
+      /*
+       * The same artist under the stricter, article-keeping key as well.
+       * Ticketmaster names an act cleanly and can be matched loosely; a
+       * scraped bill is a sentence and has to be matched exactly.
+       */
+      byAct.set(actKey(c.name), slot)
     }
     for (const g of json(row.genres, [])) {
       const gk = String(g).toLowerCase().trim()
@@ -64,7 +106,7 @@ function myArtists() {
       genres.set(gk, (genres.get(gk) || 0) + 1)
     }
   }
-  return { artists, genres }
+  return { artists, byAct, genres }
 }
 
 /**
@@ -105,43 +147,66 @@ router.get('/gigs', async (req, res) => {
   // The country the rest of the app already believes you are in.
   const countryCode = String(setting('watch_region') || 'GB').toUpperCase()
 
-  if (!ticketmaster.hasKey()) {
-    return res.json({
-      needsKey: true, city, radiusKm, days, yours: [], similar: [], counted: 0,
-    })
-  }
+  /*
+   * Two sources that answer different questions.
+   *
+   * Ticketmaster, if a key has been issued, covers the rooms with a box
+   * office — the Academy, the Beacon, the arenas — and tells you the genre,
+   * which is the only way to guess at a band you have never heard of.
+   *
+   * Headfirst covers the city: the Louisiana, the Exchange, the Croft, the
+   * Thunderbolt, everything that sells its own tickets. It needs no key and
+   * knows no genres, so it can say "this is somebody you listen to" and
+   * nothing more. It is also Bristol-only, being Bristol's listings site, so
+   * it is skipped the moment the town is set to anywhere else.
+   */
+  const warnings = []
+  const sources = []
+  const localTown = /^bristol$/i.test(city.trim())
 
   let events = []
-  try {
-    events = await ticketmaster.musicNear({ city, radiusKm, days, countryCode })
-  } catch (err) {
-    /*
-     * A rejected key is the one failure worth explaining: everything else
-     * here degrades to "nothing on", which is indistinguishable from a
-     * quiet month and would hide a broken setting for weeks.
-     */
-    /*
-     * The status, not the message. The message contains the request URL and
-     * the URL contains the key, so a key with "401" in it turned every
-     * failure into "your key is wrong" and sent you off to replace a working
-     * one.
-     */
-    const bad = err.status === 401 || err.status === 403
-    /*
-     * Never the raw message: the fetch layer puts the whole request URL in
-     * it, and the request URL carries the API key. A failing endpoint would
-     * otherwise print the key into the browser, and into whatever the
-     * browser's console gets copied into.
-     */
-    const safe = String(err.message).replace(/apikey=[^&\s]+/gi, 'apikey=…').slice(0, 160)
-    return res.status(bad ? 400 : 502).json({
-      error: bad
+  let keyRefused = false
+  if (ticketmaster.hasKey()) {
+    try {
+      events = await ticketmaster.musicNear({ city, radiusKm, days, countryCode })
+      sources.push({ id: 'ticketmaster', label: 'Ticketmaster', events: events.length })
+    } catch (err) {
+      // The status, not the message: the message contains the request URL,
+      // which contains the key, so a key with "401" in it would otherwise
+      // turn every failure into "your key is wrong".
+      keyRefused = err.status === 401 || err.status === 403
+      const safe = String(err.message).replace(/apikey=[^&\s]+/gi, 'apikey=…').slice(0, 160)
+      warnings.push(keyRefused
         ? 'Ticketmaster rejected that key — check it in Connections.'
-        : `Could not reach the listings: ${safe}`,
+        : `Ticketmaster did not answer: ${safe}`)
+    }
+  }
+
+  let local = { events: [], warnings: [] }
+  if (localTown) {
+    try {
+      local = await headfirst.gigs({ days })
+      sources.push({ id: 'headfirst', label: 'Headfirst Bristol', events: local.events.length })
+    } catch (err) {
+      warnings.push(`Could not read the Bristol listings: ${String(err.message).slice(0, 160)}`)
+    }
+    // Anything the scraper noticed about itself — a page that answered but
+    // could not be read, a venue that has vanished — is said out loud rather
+    // than left to look like a quiet month.
+    warnings.push(...local.warnings)
+  } else {
+    warnings.push(`The Bristol listings are only used for Bristol, so ${city} is Ticketmaster only.`)
+  }
+
+  if (!sources.length) {
+    return res.status(keyRefused ? 400 : 200).json({
+      needsKey: !ticketmaster.hasKey() && !localTown,
+      error: warnings[0] || null,
+      city, radiusKm, days, warnings, sources: [], yours: [], similar: [], whatsOn: [], counted: 0,
     })
   }
 
-  const { artists, genres } = myArtists()
+  const { artists, byAct, genres } = myArtists()
   const totalGenre = [...genres.values()].reduce((a, b) => a + b, 0)
 
   const yours = []
@@ -168,6 +233,7 @@ router.get('/gigs', async (req, res) => {
     if (hits.length) {
       yours.push({
         ...ev,
+        source: 'ticketmaster',
         why: hits.slice(0, 2).map((h) => ({
           artist: h.name,
           tracks: h.tracks,
@@ -189,26 +255,81 @@ router.get('/gigs', async (req, res) => {
     if (score >= 0.05) {
       similar.push({
         ...ev,
+        source: 'ticketmaster',
         why: [{ artist: null, tracks: 0, reason: `${ev.genres.slice(0, 2).join(' · ') || 'Music'} — your sort of thing` }],
         score,
       })
     }
   }
 
+  /*
+   * The scraped half. A bill is a sentence rather than a list of acts, so
+   * every part of it is tried against the artists you listen to; anything
+   * that matches joins the same list the box office feeds, and the rest
+   * becomes the plain what's-on below it.
+   */
+  const whatsOn = []
+  for (const ev of local.events) {
+    const fingerprint = `${key(ev.name)}|${ev.date}|${key(ev.venue || '')}`
+    if (seen.has(fingerprint)) continue
+    seen.add(fingerprint)
+
+    const hits = actsIn(ev.name)
+      .map((k) => byAct.get(k))
+      .filter(Boolean)
+      .sort((a, b) => b.tracks - a.tracks)
+
+    const shaped = {
+      id: ev.id,
+      name: ev.name,
+      artists: hits.length ? [hits[0].name] : [],
+      date: ev.date,
+      time: null,
+      dateTbd: false,
+      venue: ev.venue,
+      city: 'Bristol',
+      url: ev.url,
+      image: ev.image,
+      genres: [],
+      price: null,
+      soldOut: ev.soldOut,
+      source: 'headfirst',
+    }
+
+    if (hits.length) {
+      yours.push({
+        ...shaped,
+        why: hits.slice(0, 2).map((h) => ({
+          artist: h.name,
+          tracks: h.tracks,
+          reason: `${h.tracks} track${h.tracks === 1 ? '' : 's'} of theirs in your library`,
+        })),
+        score: hits[0].score,
+      })
+    } else {
+      whatsOn.push({ ...shaped, why: [] })
+    }
+  }
+
   /* Yours by date: it is a diary, and you need to know what you might miss.
      Guesses by how likely they are, because nobody reads to the bottom. */
-  /* A date nobody has announced yet sorts last rather than first. */
   const byDate = (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || String(a.date).localeCompare(String(b.date))
   yours.sort(byDate)
   similar.sort((a, b) => b.score - a.score || byDate(a, b))
+  whatsOn.sort(byDate)
 
   res.json({
     city,
     radiusKm,
     days,
-    counted: events.length,
+    counted: events.length + local.events.length,
     knownArtists: artists.size,
+    sources,
+    warnings,
     yours,
     similar: similar.slice(0, 40),
+    /* The rest of what is on, which is a gig guide rather than a suggestion
+       — so it is a month of it, not four. */
+    whatsOn: whatsOn.filter((g) => g.date <= new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10)),
   })
 })

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from './Icon'
 import { Empty } from './Modal'
@@ -9,6 +10,9 @@ interface Why { artist: string | null; tracks: number; reason: string }
 export interface Gig {
   id: string
   name: string
+  /** Sold out, as the listing site says so — worth knowing before you click. */
+  soldOut?: boolean
+  source?: string
   artists: string[]
   date: string | null
   time: string | null
@@ -30,9 +34,16 @@ interface GigsResponse {
   knownArtists: number
   yours: Gig[]
   similar: Gig[]
+  /** Everything else at the city's music venues — a listing, not a suggestion. */
+  whatsOn: Gig[]
+  sources: { id: string; label: string; events: number }[]
+  warnings: string[]
   needsKey?: boolean
   error?: string
 }
+
+/** How much of the plain what's-on list to draw before asking. */
+const PAGE = 40
 
 function money(price: Gig['price']) {
   if (!price) return null
@@ -56,6 +67,7 @@ function GigRow({ gig }: { gig: Gig }) {
         <span className="gig__title u-trunc">{title}</span>
         <span className="gig__where u-trunc u-sm u-dim">
           {[gig.venue, gig.city].filter(Boolean).join(' · ') || 'Venue to be confirmed'}
+          {gig.soldOut ? <span className="u-mut"> · sold out</span> : null}
         </span>
         <span className="chiprow">
           {gig.why.slice(0, 2).map((w, i) => (
@@ -89,6 +101,7 @@ export function Gigs() {
    * which is the one message that would send you looking in the wrong place.
    */
   const { data, loading, error } = useFetch<GigsResponse>('/gigs', [])
+  const [shown, setShown] = useState(PAGE)
 
   if (loading) {
     return (
@@ -135,8 +148,9 @@ export function Gigs() {
 
   const yours = data?.yours ?? []
   const similar = data?.similar ?? []
+  const whatsOn = data?.whatsOn ?? []
 
-  if (!yours.length && !similar.length) {
+  if (!yours.length && !similar.length && !whatsOn.length) {
     return (
       <Empty icon="mic" title={`Nothing on near ${data?.city ?? 'you'}`}>
         {data?.counted
@@ -169,10 +183,47 @@ export function Gigs() {
         </div>
       )}
 
-      <p className="u-xs u-mut" style={{ margin: 0 }}>
-        {data?.counted} gigs within {data?.radiusKm}km of {data?.city} over the next {data?.days} days, from
-        Ticketmaster — which does not carry the small independent venues, so this is not everything that is on.
-      </p>
+      {/*
+        * The rest of it, as a listing rather than a recommendation. The
+        * scraped half of this knows no genres, so there is no honest way to
+        * narrow four hundred gigs down to the ones you would like — but a
+        * month of what is on at the city's music venues is worth having on
+        * its own, and it is the half that catches the band you had never
+        * heard of until a friend mentioned them.
+        */}
+      {whatsOn.length > 0 && (
+        <div className="u-col" style={{ gap: 8 }}>
+          <span className="u-caps">Else on in {data?.city}</span>
+          <span className="u-xs u-mut" style={{ marginTop: -4 }}>
+            The next month at the city's music venues — nobody you listen to, so make of it what you will.
+          </span>
+          <div className="u-col" style={{ gap: 8 }}>
+            {whatsOn.slice(0, shown).map((g) => <GigRow key={g.id} gig={g} />)}
+          </div>
+          {shown < whatsOn.length && (
+            <button className="btn" onClick={() => setShown((n) => n + PAGE)}>
+              Show more — {whatsOn.length - shown} to go
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Where it came from, and anything that went wrong getting it. A
+          scraper that quietly stops reads exactly like a quiet month. */}
+      <div className="u-col" style={{ gap: 4 }}>
+        <p className="u-xs u-mut" style={{ margin: 0 }}>
+          {data?.counted} gigs {(data?.sources ?? []).some((s) => s.id === 'ticketmaster')
+            ? `within ${data?.radiusKm}km of ${data?.city}`
+            : `in ${data?.city}`} over the next {data?.days} days, from{' '}
+          {(data?.sources ?? []).map((s) => s.label).join(' and ') || 'nowhere'}.
+          {(data?.sources ?? []).some((s) => s.id === 'headfirst') && !(data?.sources ?? []).some((s) => s.id === 'ticketmaster')
+            ? ' Without a Ticketmaster key there are no genres to guess from, so only artists you already listen to can be picked out.'
+            : ''}
+        </p>
+        {(data?.warnings ?? []).map((w, i) => (
+          <p key={i} className="u-xs" style={{ margin: 0, color: 'var(--warn, var(--ink-3))' }}>⚠ {w}</p>
+        ))}
+      </div>
     </div>
   )
 }
