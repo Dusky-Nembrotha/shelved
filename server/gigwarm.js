@@ -2,6 +2,7 @@ import * as headfirst from './providers/headfirst.js'
 import * as venuesites from './providers/venuesites.js'
 import * as mb from './providers/musicbrainz.js'
 import { setting } from './lib/settings.js'
+import { BILL_SPLIT, isProbablyAGig } from './lib/gigs.js'
 
 /**
  * Keeping the gig listings warm, so the tab is never the thing that waits.
@@ -23,7 +24,6 @@ const FIRST_RUN_DELAY_MS = 3 * 60 * 1000
 const EVERY_MS = 12 * 60 * 60 * 1000
 const LOOKUPS_PER_RUN = 250
 
-const BILL_SPLIT = /\s*(?:\/|\+|&|,|•|•|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:|\s[–—-]\s)\s*/i
 
 let running = false
 
@@ -44,6 +44,8 @@ export async function warmGigs({ lookups = LOOKUPS_PER_RUN } = {}) {
 
     const acts = new Set()
     for (const ev of events) {
+      // Club nights and exhibitions are not bands; not worth a lookup each.
+      if (!isProbablyAGig(ev.name).gig) continue
       for (const part of [ev.name, ...String(ev.name).split(BILL_SPLIT)]) {
         const name = part.trim()
         if (name.length > 2 && name.length < 60) acts.add(name)

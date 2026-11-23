@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from './Icon'
 import { Empty } from './Modal'
@@ -34,16 +33,13 @@ interface GigsResponse {
   knownArtists: number
   yours: Gig[]
   similar: Gig[]
-  /** Everything else at the city's music venues — a listing, not a suggestion. */
-  whatsOn: Gig[]
+  /** Read and set aside: what was not a gig, and what was not for you. */
+  skipped: { notGigs: number; unmatched: number }
   sources: { id: string; label: string; events: number }[]
   warnings: string[]
   needsKey?: boolean
   error?: string
 }
-
-/** How much of the plain what's-on list to draw before asking. */
-const PAGE = 40
 
 function money(price: Gig['price']) {
   if (!price) return null
@@ -101,7 +97,6 @@ export function Gigs() {
    * which is the one message that would send you looking in the wrong place.
    */
   const { data, loading, error } = useFetch<GigsResponse>('/gigs', [])
-  const [shown, setShown] = useState(PAGE)
 
   if (loading) {
     return (
@@ -148,13 +143,13 @@ export function Gigs() {
 
   const yours = data?.yours ?? []
   const similar = data?.similar ?? []
-  const whatsOn = data?.whatsOn ?? []
 
-  if (!yours.length && !similar.length && !whatsOn.length) {
+  if (!yours.length && !similar.length) {
     return (
-      <Empty icon="mic" title={`Nothing on near ${data?.city ?? 'you'}`}>
+      <Empty icon="mic" title={`Nothing for you near ${data?.city ?? 'you'}`}>
         {data?.counted
-          ? `Looked at ${data.counted} gigs in the next ${data.days} days and none of them are your sort of thing.`
+          ? `Read ${data.counted} listings for the next ${data.days} days. None of them are bands you listen to,`
+            + ' and none of the rest came out looking like your taste.'
           : 'No listings came back for that town. Check the town and the distance in Settings.'}
       </Empty>
     )
@@ -183,32 +178,6 @@ export function Gigs() {
         </div>
       )}
 
-      {/*
-        * The rest of it, as a listing rather than a recommendation. The
-        * scraped half of this knows no genres, so there is no honest way to
-        * narrow four hundred gigs down to the ones you would like — but a
-        * month of what is on at the city's music venues is worth having on
-        * its own, and it is the half that catches the band you had never
-        * heard of until a friend mentioned them.
-        */}
-      {whatsOn.length > 0 && (
-        <div className="u-col" style={{ gap: 8 }}>
-          <span className="u-caps">Everything else on in {data?.city}</span>
-          <span className="u-xs u-mut" style={{ marginTop: -4 }}>
-            The whole of the next month at the city's music venues, nobody you listen to among them —
-            a gig guide rather than a suggestion, because without genres there is no honest way to narrow it.
-          </span>
-          <div className="u-col" style={{ gap: 8 }}>
-            {whatsOn.slice(0, shown).map((g) => <GigRow key={g.id} gig={g} />)}
-          </div>
-          {shown < whatsOn.length && (
-            <button className="btn" onClick={() => setShown((n) => n + PAGE)}>
-              Show more — {whatsOn.length - shown} to go
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Where it came from, and anything that went wrong getting it. A
           scraper that quietly stops reads exactly like a quiet month. */}
       <div className="u-col" style={{ gap: 4 }}>
@@ -221,6 +190,12 @@ export function Gigs() {
             ? ' Without a Ticketmaster key there are no genres to guess from, so only artists you already listen to can be picked out.'
             : ''}
         </p>
+        {data?.skipped && (data.skipped.notGigs + data.skipped.unmatched) > 0 && (
+          <p className="u-xs u-mut" style={{ margin: 0 }}>
+            Set aside: {data.skipped.unmatched} gigs by bands with no connection to your library
+            {data.skipped.notGigs > 0 ? `, and ${data.skipped.notGigs} club nights, exhibitions and the like` : ''}.
+          </p>
+        )}
         {(data?.warnings ?? []).map((w, i) => (
           <p key={i} className="u-xs" style={{ margin: 0, color: 'var(--warn, var(--ink-3))' }}>⚠ {w}</p>
         ))}

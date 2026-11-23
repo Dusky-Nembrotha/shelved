@@ -19,13 +19,12 @@ import * as headfirst from '../server/providers/headfirst.js'
 import * as venuesites from '../server/providers/venuesites.js'
 import * as mb from '../server/providers/musicbrainz.js'
 import { setting } from '../server/lib/settings.js'
+import { BILL_SPLIT, isProbablyAGig } from '../server/lib/gigs.js'
 
 const apply = process.argv.includes('--apply')
 const limitArg = process.argv.indexOf('--limit')
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 0
 
-/* The same splitting the matcher uses: a bill is a sentence, not one act. */
-const BILL_SPLIT = /\s*(?:\/|\+|&|,|•|•|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:|\s[–—-]\s)\s*/i
 
 const days = Number(setting('gigs_days')) || 120
 const listings = await headfirst.gigs({ days })
@@ -41,6 +40,8 @@ for (const w of [...listings.warnings, ...direct.warnings]) console.log(`  warni
  */
 const acts = new Set()
 for (const ev of events) {
+  // Club nights and exhibitions are not bands; not worth a lookup each.
+  if (!isProbablyAGig(ev.name).gig) continue
   for (const part of [ev.name, ...ev.name.split(BILL_SPLIT)]) {
     const name = part.trim()
     if (name.length > 2 && name.length < 60) acts.add(name)

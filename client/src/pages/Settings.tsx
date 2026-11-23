@@ -240,7 +240,7 @@ export function SettingsPage() {
             <div className="field">
               <label htmlFor="gigs-days">Looking ahead (days)</label>
               <input
-                id="gigs-days" className="input" style={{ maxWidth: 130 }} type="number" min={7} max={365}
+                id="gigs-days" className="input" style={{ maxWidth: 130 }} type="number" min={7} max={730}
                 value={gigsDays} onChange={(e) => setGigsDays(e.target.value)}
               />
             </div>
@@ -250,7 +250,7 @@ export function SettingsPage() {
               onClick={() => save({
                 gigs_city: gigsCity.trim() || 'Bristol',
                 gigs_radius_km: String(Math.min(300, Math.max(1, Number(gigsRadius) || 40))),
-                gigs_days: String(Math.min(365, Math.max(7, Number(gigsDays) || 120))),
+                gigs_days: String(Math.min(730, Math.max(7, Number(gigsDays) || 540))),
               }, 'Gigs settings saved')}
             >
               Save

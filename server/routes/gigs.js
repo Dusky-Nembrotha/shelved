@@ -6,6 +6,7 @@ import * as ticketmaster from '../providers/ticketmaster.js'
 import * as headfirst from '../providers/headfirst.js'
 import * as venuesites from '../providers/venuesites.js'
 import * as mb from '../providers/musicbrainz.js'
+import { actKey, actsIn, isProbablyAGig } from '../lib/gigs.js'
 
 export const router = Router()
 
@@ -25,46 +26,6 @@ export const router = Router()
 /** Names compare on their normalised form: "Mötley Crüe" is "motley crue". */
 function key(name) {
   return normaliseTitle(name)
-}
-
-/**
- * The same, but keeping the leading article, for matching act names.
- *
- * normaliseTitle drops a leading "the" because "A Thousand Splendid Suns"
- * and "Thousand Splendid Suns" are one book. Band names are not books: with
- * the article gone, a night called HEAVY matched The Heavy, and "Mario Kart
- * With A Band" split to "a band" and matched The Band. Precision matters
- * more than reach here — a wrong gig in "artists you listen to" is worse
- * than a missing one, because the whole point of that list is that it is
- * not a guess.
- */
-function actKey(name) {
-  return String(name || '')
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
-/*
- * A bill is rarely one act: "CWFEN / BIRDWITCH / URZAH", "Mildred + Myer U
- * Clark", "Opeth with special guests". Every part is tried, and the whole
- * string too, because plenty of band names contain an "and".
- */
-const BILL_SPLIT = /\s*(?:\/|\+|&|,|•|\u2022|\bwith\b|\bw\/\b|\bpresents?\b|\bfeat\.?\b|\bft\.?\b|\bsupported by\b|\bplus\b|:|\s[–—-]\s)\s*/i
-
-function actsIn(billing) {
-  const whole = String(billing || '').trim()
-  /*
-   * The whole string as well as its parts, because "Florence & the Machine"
-   * and "Godspeed You! Black Emperor" are one act with a separator in the
-   * middle. Splitting can only add candidates, never remove the original,
-   * and every candidate still has to match an artist exactly.
-   */
-  const parts = [whole, ...whole.split(BILL_SPLIT)]
-  return [...new Set(parts.map(actKey).filter((p) => p.length > 2))]
 }
 
 /*
@@ -137,21 +98,46 @@ function myArtists() {
 function affinity(tags, mine, topCount) {
   if (!topCount || !tags?.length) return 0
   let best = 0
+  let matched = null
   for (const tag of tags) {
     const t = String(tag).toLowerCase().trim()
-    if (!t) continue
+    if (!t || NOT_A_GENRE.test(t)) continue
+
+    /*
+     * The exact tag, and the nearest thing to it in your library, and
+     * whichever says more.
+     *
+     * Both, not one or the other: Alcest is tagged "black metal", you have
+     * twenty black metal tracks and a thousand metal ones, and taking the
+     * exact match alone scored the band at two per cent and dropped it. A
+     * tag sharing a whole word with one of your genres counts for half.
+     *
+     * Words are split on anything that is not a letter, because "post-metal"
+     * is hyphenated and "metal" was not finding it, and must be four letters
+     * at least — as a loose substring the tag "uk" matched "uk hip hop" and
+     * every British band in the city became your sort of thing.
+     */
+    const tokens = (text) => String(text).split(/[^a-z0-9]+/).filter((w) => w.length > 3)
     let hits = mine.get(t) || 0
-    if (!hits) {
-      // "stoner doom" is not in your library but "stoner rock" and "doom
-      // metal" are; a tag that contains one of yours counts for half.
+    let how = t
+    const words = new Set(tokens(t))
+    if (words.size) {
       for (const [g, n] of mine) {
-        if (g.length > 3 && (t.includes(g) || g.includes(t))) hits = Math.max(hits, n * 0.5)
+        if (n * 0.5 <= hits) continue
+        if (tokens(g).some((w) => words.has(w))) { hits = n * 0.5; how = g }
       }
     }
-    best = Math.max(best, hits / topCount)
+    if (hits / topCount > best) { best = hits / topCount; matched = how }
   }
-  return best
+  return { score: best, matched }
 }
+
+/*
+ * MusicBrainz tags are a free-for-all: alongside "doom metal" sit "uk",
+ * "oxford", "seen live", "british" and the year somebody first heard them.
+ * None of those say anything about what a band sounds like.
+ */
+const NOT_A_GENRE = /^(seen live|uk|usa|us|gb|british|english|scottish|welsh|irish|american|australian|canadian|german|french|swedish|norwegian|finnish|japanese|dutch|belgian|danish|polish|italian|spanish|bristol|london|oxford|manchester|leeds|glasgow|sheffield|brighton|liverpool|cardiff|birmingham|new york|los angeles|female vocalists?|male vocalists?|favourites?|favorites?|\d{4}s?)$/i
 
 /**
  * How much a gig's genres look like your genres.
@@ -187,7 +173,7 @@ router.get('/gigs', async (req, res) => {
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : fallback
   }
   const radiusKm = num(req.query.radius ?? setting('gigs_radius_km'), 40, 1, 300)
-  const days = num(req.query.days ?? setting('gigs_days'), 120, 1, 365)
+  const days = num(req.query.days ?? setting('gigs_days'), 540, 1, 730)
   // The country the rest of the app already believes you are in.
   const countryCode = String(setting('watch_region') || 'GB').toUpperCase()
 
@@ -334,11 +320,20 @@ router.get('/gigs', async (req, res) => {
    */
   const topGenre = Math.max(0, ...genres.values())
 
-  const whatsOn = []
+  let unmatched = 0
+  let notGigs = 0
   for (const ev of local.events) {
     const fingerprint = `${key(ev.name)}|${ev.date}|${key(ev.venue || '')}`
     if (seen.has(fingerprint)) continue
     seen.add(fingerprint)
+
+    /*
+     * A city listing is not a gig guide. Club nights, DJ residencies, film
+     * festivals, exhibitions and the drink-and-draw are all somebody's
+     * evening and none of them are a band playing, which is the only thing
+     * this tab is for.
+     */
+    if (!isProbablyAGig(ev.name).gig) { notGigs++; continue }
 
     /*
      * A short common word is not an act. "Love - Forever Changes 60th
@@ -393,28 +388,44 @@ router.get('/gigs', async (req, res) => {
      */
     let affinityScore = 0
     let matchedTags = []
+    let matchedGenre = null
     for (const act of actsIn(ev.name).slice(0, 3)) {
       const tags = await mb.artistTags(act, { cacheOnly: true })
       if (!tags?.found || !tags.genres.length) continue
-      const score = affinity(tags.genres, genres, topGenre)
-      if (score > affinityScore) { affinityScore = score; matchedTags = tags.genres }
+      const { score, matched } = affinity(tags.genres, genres, topGenre)
+      if (score > affinityScore) {
+        affinityScore = score
+        matchedTags = tags.genres.filter((g) => !NOT_A_GENRE.test(g))
+        matchedGenre = matched
+      }
     }
 
     if (affinityScore >= 0.3) {
+      /*
+       * The reason names the genre that actually matched, not merely the
+       * band's first two tags — "oxford · neo-psychedelia — your sort of
+       * thing" was true of nothing.
+       */
+      const also = matchedTags.filter((g) => g !== matchedGenre).slice(0, 1)
       similar.push({
         ...shaped,
-        genres: matchedTags.slice(0, 3),
+        genres: [matchedGenre, ...also].filter(Boolean),
         why: [{
           artist: null,
           tracks: 0,
-          reason: `${matchedTags.slice(0, 2).join(' · ')} — your sort of thing`,
+          reason: `${[matchedGenre, ...also].filter(Boolean).join(' · ')} — you listen to a lot of that`,
         }],
         score: affinityScore,
       })
       continue
     }
 
-    whatsOn.push({ ...shaped, why: [] })
+    /*
+     * Nobody you listen to, and nothing that reads like your taste. It used
+     * to be listed anyway, as a plain what's-on; Charlie only wants gigs by
+     * bands he likes, so it is counted and dropped.
+     */
+    unmatched++
   }
 
   /* Yours by date: it is a diary, and you need to know what you might miss.
@@ -422,7 +433,6 @@ router.get('/gigs', async (req, res) => {
   const byDate = (a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || String(a.date).localeCompare(String(b.date))
   yours.sort(byDate)
   similar.sort((a, b) => b.score - a.score || byDate(a, b))
-  whatsOn.sort(byDate)
 
   res.json({
     city,
@@ -434,8 +444,8 @@ router.get('/gigs', async (req, res) => {
     warnings,
     yours,
     similar: similar.slice(0, 40),
-    /* The rest of what is on, which is a gig guide rather than a suggestion
-       — so it is a month of it, not four. */
-    whatsOn: whatsOn.filter((g) => g.date <= new Date(Date.now() + 31 * 86400000).toISOString().slice(0, 10)),
+    /* What was read and set aside, so the footer can be honest about how
+       much of the city is being passed over and why. */
+    skipped: { notGigs, unmatched },
   })
 })
